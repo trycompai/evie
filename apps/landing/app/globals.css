@@ -1,0 +1,76 @@
+/*
+ * The marketing site runs on the product's design system. One import brings
+ * Tailwind, the Evie tokens, the base layer, and the `@source` globs that keep
+ * classes used only inside @evie/ui from being purged -- see
+ * packages/ui/src/styles/globals.css. Nothing here redefines a token; the
+ * landing page and the app have to stay the same colour.
+ */
+@import "@evie/ui/globals.css";
+
+/*
+ * Two aliases the marketing page needs and the app does not.
+ *
+ * `--color-gray-700/800` are primitives in the design system, deliberately not
+ * exposed as utilities: inside the product every neutral has a semantic name.
+ * Marketing has one role the app has no word for -- the small mono labels
+ * ("PRICING", "01 — DESKTOP") and the colophon, which sit a step lighter than
+ * body text without being disabled. Naming it here keeps the arbitrary value
+ * out of a dozen class lists, and keeps it out of the shared system, where a
+ * `quiet` that only one surface uses would be dead weight.
+ */
+/*
+ * The status dot on the inverted band.
+ *
+ * The band is a *contrast* surface, not a `.dark` subtree -- so it is ink in
+ * light mode and paper in dark mode, the opposite way round from everything
+ * else on the page. `--color-success` therefore always has it backwards, and
+ * this variable holds the green that suits the band rather than the theme:
+ * the design system's dark-mode green while the band is dark, its light-mode
+ * green once the band turns light.
+ */
+:root {
+  --live: oklch(73.1% 0.216 148.3);
+}
+
+.dark {
+  --live: oklch(51.7% 0.145 147.6);
+}
+
+@theme inline {
+  --color-quiet: var(--color-gray-800);
+  --color-quiet-strong: var(--color-gray-700);
+  --color-live: var(--live);
+}
+
+/*
+ * The app forbids document scroll -- panes scroll, the shell does not. A
+ * marketing page is the opposite: it is a document, and it scrolls.
+ */
+html {
+  overscroll-behavior: auto;
+}
+
+@layer components {
+  /*
+   * The product screenshots. See components/screens/screen-frame.tsx for what
+   * `--frame-fit` is doing; the arithmetic lives here because a transform scale
+   * cannot be written as a Tailwind utility and a media query cannot be written
+   * inline. Every value is authored by the caller as a custom property, so this
+   * rule is the same three lines for all four frames on the page.
+   */
+  .screen-frame {
+    --frame-fit: 1;
+    width: calc(var(--frame-w) * var(--frame-fit));
+    height: calc(var(--frame-h) * var(--frame-fit));
+  }
+
+  .screen-frame-inner {
+    position: absolute;
+    top: calc(var(--frame-y) * var(--frame-fit));
+    left: calc(var(--frame-x) * var(--frame-fit));
+    width: 1440px;
+    height: 900px;
+    transform-origin: top left;
+    transform: scale(calc(var(--frame-scale) * var(--frame-fit)));
+  }
+}

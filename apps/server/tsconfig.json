@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@evie/typescript-config/node-library.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src", "test"],
+  "exclude": ["node_modules"]
+}

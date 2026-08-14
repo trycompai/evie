@@ -1,0 +1,33 @@
+{
+  "name": "@evie/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./ids": "./src/ids.ts",
+    "./version": "./src/version.ts",
+    "./bot": "./src/bot.ts",
+    "./thread": "./src/thread.ts",
+    "./timeline": "./src/timeline.ts",
+    "./commands": "./src/commands.ts",
+    "./events": "./src/events.ts",
+    "./rpc": "./src/rpc.ts",
+    "./errors": "./src/errors.ts",
+    "./org": "./src/org.ts"
+  },
+  "scripts": {
+    "lint": "eslint",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.109"
+  },
+  "devDependencies": {
+    "@evie/eslint-config": "workspace:*",
+    "@evie/typescript-config": "workspace:*",
+    "eslint": "^9.39.1",
+    "typescript": "5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

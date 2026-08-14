@@ -1,0 +1,24 @@
+{
+  "name": "@evie/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Evie desktop shell: a tray-resident macOS app that owns an Evie server and a window onto it.",
+  "main": "out/main.cjs",
+  "scripts": {
+    "icons": "node scripts/icons.mjs",
+    "bundle": "node scripts/build.mjs",
+    "build": "bun run icons && bun run bundle",
+    "dev": "bun run build && electron out/main.cjs",
+    "lint": "eslint",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@evie/eslint-config": "workspace:*",
+    "@evie/typescript-config": "workspace:*",
+    "@types/node": "^24.13.3",
+    "electron": "^40.1.0",
+    "esbuild": "^0.25.10",
+    "eslint": "^9.39.1",
+    "typescript": "5.9.2"
+  }
+}

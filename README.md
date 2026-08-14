@@ -1,159 +1,110 @@
-# Turborepo starter
+# Evie
 
-This Turborepo starter is maintained by the Turborepo core team.
+A minimal, open, bring-your-own-key GUI for [eve](https://eve.dev) agents.
 
-## Using this example
+Evie is what a self-hosted client is to a $300/month subscription: persistent named agents, each with
+their own sandboxed computer, running on hardware you control, against your keys, with the source in
+your hands.
 
-Run the following command:
+The design was specified before it was built. Start at [`specs/README.md`](./specs/README.md); what
+exists today is described in [`docs/`](./docs/README.md).
 
-```sh
-npx create-turbo@latest
-```
+## Status
 
-## What's inside?
+Phase 0 → 1. The workspace, the wire contract, the design system, and the client are in place; the
+server's control plane is landing behind them. See [`specs/06-roadmap.md`](./specs/06-roadmap.md) for
+what ships when.
 
-This Turborepo includes the following packages/apps:
+## What's here
 
-### Apps and Packages
+| Package                   | What it is                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `@evie/server`            | The environment. RPC-over-WebSocket gateway, event-sourced control plane, eve supervisor.      |
+| `@evie/web`               | The UI. React 19 + Vite 8.                                                                     |
+| `@evie/contracts`         | Everything that crosses the wire, as Effect Schema. Change it and both sides follow or fail.   |
+| `@evie/client-runtime`    | RPC client, external store, timeline projection. No framework coupling.                        |
+| `@evie/shared`            | Runtime utils. Subpath exports, no barrel.                                                     |
+| `@evie/ui`                | Design system. shadcn `base-nova` on `@base-ui/react`, Tailwind 4, Geist.                      |
+| `@evie/eslint-config`     | Shared ESLint config (`./base`, `./react-internal`).                                           |
+| `@evie/typescript-config` | Shared `tsconfig.json` bases.                                                                  |
+| `.repos/`                 | Vendored read-only library source (Effect, Alchemy) for agents to read instead of guess.       |
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+Every `@evie/*` package is **just-in-time**: it exports raw source and emits nothing, so the
+consuming app's bundler compiles it and the dev loop has no build step. An app that imports one must
+exclude it from Vite's pre-bundling and point Tailwind at its source — both already done in
+`apps/web`, and worth copying rather than rediscovering.
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+## Requirements
 
-### Utilities
+- Node 24 or newer. The server uses `node:sqlite`, so there is no native module to rebuild and
+  Electron needs no rebuild step.
+- Bun 1.3.12 as the package manager.
 
-This Turborepo has some additional tools already setup for you:
+## Running it
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo build
-bun dlx turbo build
-bun exec turbo build
-```
-
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+There is no desktop app yet — `apps/desktop` is a later phase. Today Evie is the
+server plus the web client, and the server serves the client:
 
 ```sh
-turbo build --filter=docs
+bun i
+turbo run build --filter=@evie/web            # once, and after UI changes
+
+cd apps/server
+EVIE_HOME=../../.evie \
+EVIE_WEB_DIST=../web/dist \
+EVIE_PORT=3001 \
+bunx tsx src/main.ts
 ```
 
-Without global `turbo`:
+The last line prints the URL to open, with a **one-time sign-in token** in it:
+
+```
+Evie is ready: http://127.0.0.1:3001/?claim=…
+```
+
+Open that exact URL. The token is single-use and expires in 60 seconds, so a
+reload or a second tab lands on "That sign-in link was already used" — restart
+the server for a fresh one. That is deliberate: every process on the machine can
+reach loopback, and behind that cookie is an agent with a shell in your home
+directory.
+
+### Working on the UI
+
+`turbo dev --filter=@evie/web` gives Vite with HMR on port 3000. Note that Vite
+8's WebSocket proxy does not forward the RPC upgrade, so the app cannot reach a
+server through it — use the flow above for anything that talks to the server,
+and use the dev server for the screen gallery at
+`http://localhost:3000/gallery.html`, which renders every screen from fixtures
+with no server at all. That gallery is how a change gets checked against the
+Paper file; see [`docs/internals/design-system.md`](./docs/internals/design-system.md).
+
+## Working in this repo
 
 ```sh
-npx turbo build --filter=docs
-bun exec turbo build --filter=docs
-bun exec turbo build --filter=docs
+bun i                                        # install the whole workspace, from the root
+turbo dev                                    # every persistent dev task
+turbo dev --filter=@evie/web                 # just one
+turbo run lint check-types --filter=@evie/ui # smallest proof a change is sound
 ```
 
-### Develop
+Always pass a `--filter`. Repo-wide checks belong to CI.
 
-To develop all apps and packages, run the following command:
+The dev server writes to a worktree-local `.evie/`, never to `~/.evie` — that is the developer's real
+database and it is open while you work. Seeding it with real data is covered in
+[`AGENTS.md`](./AGENTS.md#test-data).
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+Contributor conventions, and the two ways to hurt yourself, are in [`AGENTS.md`](./AGENTS.md).
 
-```sh
-cd my-turborepo
-turbo dev
+## The shape of it
+
+```
+client  ──RPC over WebSocket (MsgPack)──▶  Evie server  ──loopback──▶  eve runtime  ──▶  sandbox
+                                               │
+                            commands ▶ decider ▶ events ▶ projector ▶ read model
+                                               └────────▶ reactors ▶ receipts
 ```
 
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo dev
-bun exec turbo dev
-bun exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-bun exec turbo dev --filter=web
-bun exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-bun exec turbo login
-bun exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-bun exec turbo link
-bun exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+The Evie server is the only network-exposed surface. An eve runtime binds loopback on an ephemeral
+port and is never reachable from an interface. That buys one auth boundary, one TLS story, one thing
+to tunnel — and one place to coalesce every byte before it hits a socket, which is most of why the
+UI stays quick with a thread streaming.

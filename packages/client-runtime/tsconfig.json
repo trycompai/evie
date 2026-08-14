@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@evie/typescript-config/node-library.json",
+  "compilerOptions": {
+    // Zero DOM is the rule for this package's logic, but the RPC client needs
+    // `WebSocket` and the store needs `queueMicrotask` -- both DOM lib types.
+    // Keeping React Native additive means no `document`, no `window.*` beyond
+    // these, which is a review rule rather than a compiler one.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src", "test"],
+  "exclude": ["node_modules"]
+}

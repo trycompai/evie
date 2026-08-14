@@ -1,0 +1,21 @@
+/*
+ * The design system is one import. Tailwind, the tokens, the base layer, and
+ * the `@source` globs that keep classes used only inside @evie/ui from being
+ * purged all live there -- see packages/ui/src/styles/globals.css.
+ */
+@import "@evie/ui/globals.css";
+
+/*
+ * The app fills the window and never scrolls as a document. Panes scroll; the
+ * shell does not. Without this the rail's sticky footer detaches the first time
+ * a thread is longer than the viewport.
+ */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+#root {
+  isolation: isolate;
+}

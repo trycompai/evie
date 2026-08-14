@@ -1,21 +1,66 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalEnv": ["NODE_ENV"],
+  // Available to every task, never in the hash. Two kinds live here: secrets,
+  // which must not become cache keys, and machine-shaped values (where Evie
+  // home is, which port, which interface) that legitimately differ between two
+  // checkouts of the same commit.
+  //
+  // EVIE_BOT_ID / EVIE_RUNTIME_SECRET / EVIE_ALLOWED_HOSTS are read by the
+  // generated files inside a *bot's* eve project, not by any task here. They
+  // are listed so the lint rule that catches an undeclared variable keeps
+  // catching real ones.
+  "globalPassThroughEnv": [
+    "CI",
+    "AI_GATEWAY_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "EVIE_ALLOWED_HOSTS",
+    "EVIE_ALLOW_LIVE_HOME",
+    "EVIE_BIND",
+    "EVIE_BOT_ID",
+    "EVIE_HOME",
+    "EVIE_IDLE_STOP_MINUTES",
+    "EVIE_PORT",
+    "EVIE_RUNTIME_SECRET",
+    "EVIE_WEB_DIST",
+    "EVIE_WEB_PORT"
+  ],
   "tasks": {
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
-    },
-    "lint": {
-      "dependsOn": ["^lint"]
-    },
-    "check-types": {
-      "dependsOn": ["^check-types"]
+      "env": ["VITE_*", "EVIE_CONTRACT_VERSION"],
+      // `.next/cache` is Next's own incremental cache. Turbo restoring a stale
+      // copy of it is slower than letting Next rebuild one, so it is excluded
+      // while the build output itself is cached.
+      "outputs": ["dist/**", "out/**", ".output/**", "release/**", ".next/**", "!.next/cache/**"]
     },
     "dev": {
+      // Uncached and persistent. Its secrets are in globalPassThroughEnv, so
+      // there is nothing task-specific left to declare here.
       "cache": false,
       "persistent": true
+    },
+    "test": {
+      "dependsOn": ["transit"],
+      // Empty on purpose. `vitest run` emits nothing, and declaring
+      // `coverage/**` here makes turbo warn "no output files found" on every
+      // green run -- which is how a repo teaches people to ignore warnings.
+      // Add it back alongside a package that actually runs `--coverage`.
+      "outputs": []
+    },
+    "lint": {
+      "dependsOn": ["transit"]
+    },
+    "check-types": {
+      "dependsOn": ["transit"]
     }
   }
 }

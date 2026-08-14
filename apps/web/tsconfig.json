@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@evie/typescript-config/react-library.json",
+  "compilerOptions": {
+    // Vite compiles this and every workspace package it imports, so resolution
+    // follows the bundler's rules and nothing is emitted from here.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    // Imports carry the .ts extension so Node 24 type-stripping and Vite both
+    // resolve them without a build step. Safe with noEmit.
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "paths": {
+      "~/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

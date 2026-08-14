@@ -1,0 +1,411 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Class scanning is relative to this file, so every path climbs out of
+ * packages/ui/src/styles to the repo root. Any new workspace package that
+ * ships Tailwind classes is covered as long as its source lives under src/.
+ */
+@source "../../../../apps/**/*.{ts,tsx}";
+@source "../../../../packages/*/src/**/*.{ts,tsx}";
+
+/* ==========================================================================
+ * Evie design system
+ *
+ * The source of truth is the "Evie" Paper file. Token names below match Paper
+ * one-for-one so a value can be traced back to the design without a lookup
+ * table. Paper artboards are flat, so it ships dark values under a parallel
+ * `--color-dark-*` namespace; here those become the dark-mode values of the
+ * same semantic token. That mapping is the only translation applied.
+ *
+ * Three layers, in order:
+ *   1. primitives  -- raw scale, theme-independent (--color-gray-500)
+ *   2. semantics   -- what a primitive means (--color-surface-raised)
+ *   3. aliases     -- Tailwind utilities, in @theme inline (bg-raised)
+ *
+ * Components use layer 3. Nothing reaches past layer 2 for a colour.
+ * ========================================================================== */
+
+:root {
+  /* --- 1. primitives ---------------------------------------------------- */
+  --color-white: oklch(100% 0 0);
+  --color-black: oklch(0% 0 0);
+  --color-background-subtle: oklch(98.4% 0 0);
+  --color-gray-100: oklch(96.1% 0 0);
+  --color-gray-200: oklch(94% 0 0);
+  --color-gray-300: oklch(92.5% 0 0);
+  --color-gray-400: oklch(93.7% 0 0);
+  --color-gray-500: oklch(83.6% 0 0);
+  --color-gray-600: oklch(73.2% 0 0);
+  --color-gray-700: oklch(65% 0 0);
+  --color-gray-800: oklch(59% 0 0);
+  --color-gray-900: oklch(42% 0 0);
+  --color-gray-1000: oklch(20.5% 0 0);
+
+  --color-gray-alpha-300: oklch(0% 0 0 / 10%);
+  --color-gray-alpha-400: oklch(0% 0 0 / 8%);
+  --color-gray-alpha-700: oklch(0% 0 0 / 44%);
+
+  --color-contrast-surface: oklch(20.5% 0 0);
+  --color-contrast-fg: oklch(94.6% 0 0);
+  --color-contrast-fg-muted: oklch(72% 0 0);
+  --color-contrast-border: oklch(100% 0 0 / 24%);
+
+  --color-blue-700: oklch(57.6% 0.251 258.2);
+  --color-blue-900: oklch(53.2% 0.24 257);
+  --color-green-900: oklch(51.7% 0.145 147.6);
+  --color-amber-900: oklch(52.8% 0.15 54.6);
+  --color-red-700: oklch(62.6% 0.252 23);
+
+  /* Traffic lights are macOS chrome, not brand colour. Fixed in both themes. */
+  --color-traffic-close: #ff5f57;
+  --color-traffic-minimize: #febc2e;
+  --color-traffic-zoom: #28c840;
+
+  /* --- 2. semantics (light) --------------------------------------------- */
+  --color-surface-primary: var(--color-white);
+  --color-surface-secondary: var(--color-background-subtle);
+  --color-surface-contrast: var(--color-contrast-surface);
+  /*
+   * Paper's light palette has no raised pair -- every artboard is dark. These
+   * two are the light-mode counterparts of --color-dark-surface-raised(-strong),
+   * picked one and two steps up the same neutral ramp so the elevation delta
+   * reads the same in both themes.
+   */
+  --color-surface-raised: var(--color-gray-100);
+  --color-surface-raised-strong: var(--color-gray-200);
+
+  --color-text-primary: var(--color-gray-1000);
+  --color-text-secondary: var(--color-gray-900);
+  --color-text-on-contrast: var(--color-contrast-fg);
+  --color-text-on-contrast-secondary: var(--color-contrast-fg-muted);
+
+  --color-border-subtle: var(--color-gray-alpha-300);
+  --color-border-default: var(--color-gray-alpha-400);
+  --color-border-strong: var(--color-gray-alpha-700);
+  --color-border-on-contrast: var(--color-contrast-border);
+
+  --color-focus: var(--color-blue-700);
+  --color-info: var(--color-blue-700);
+  --color-success: var(--color-green-900);
+  --color-warning: var(--color-amber-900);
+  --color-error: var(--color-red-700);
+  --color-link: var(--color-blue-900);
+
+  --color-chart-1: var(--color-gray-1000);
+  --color-chart-2: var(--color-gray-900);
+  --color-chart-3: var(--color-gray-800);
+
+  /* --- typography ------------------------------------------------------- */
+  --font-sans: "Geist Variable", Geist, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", "SFMono-Regular", Consolas, monospace;
+
+  --text-metadata: 13px;
+  --text-label: 13px;
+  --text-compact: 14px;
+  /*
+   * --text-ui is the app's control size: sidebar rows, buttons, headers. It is
+   * a step Paper uses everywhere but never named, so it is named here rather
+   * than left as a literal in twelve components.
+   */
+  --text-ui: 15px;
+  --text-body: 16px;
+  --text-lede: 18px;
+  --text-subsection: 20px;
+  --text-section: 24px;
+  --text-title: 32px;
+  --text-page-title: 40px;
+  --text-display: 48px;
+
+  --font-weight-regular: 400;
+  --font-weight-heading: 450;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  --tracking-display: -0.06em;
+  --tracking-section: -0.04em;
+  --tracking-subsection: -0.02em;
+  --tracking-normal: 0em;
+
+  --leading-caption: 18px;
+  --leading-compact: 20px;
+  --leading-body: 24px;
+  --leading-subsection: 26px;
+  --leading-lede: 28px;
+  --leading-section: 32px;
+  --leading-title: 40px;
+  --leading-page-title: 48px;
+  --leading-display: 56px;
+
+  /* --- shape ------------------------------------------------------------ */
+  --radius-small: 6px;
+  --radius-default: 8px;
+  /*
+   * Chat surfaces. Paper draws these as literals; they recur across the
+   * composer, message bubbles, and the avatar/action pills, so they are tokens.
+   */
+  --radius-bubble: 18px;
+  --radius-composer: 28px;
+  --radius-pill: 99px;
+
+  /* shadcn base-nova contract. Every value below points at a token above so
+   * a shadcn component and an Evie component cannot drift apart. */
+  --radius: var(--radius-default);
+  --background: var(--color-surface-primary);
+  --foreground: var(--color-text-primary);
+  --card: var(--color-surface-raised);
+  --card-foreground: var(--color-text-primary);
+  --popover: var(--color-surface-raised);
+  --popover-foreground: var(--color-text-primary);
+  --primary: var(--color-text-primary);
+  --primary-foreground: var(--color-surface-primary);
+  --secondary: var(--color-surface-raised-strong);
+  --secondary-foreground: var(--color-text-primary);
+  --muted: var(--color-surface-raised);
+  --muted-foreground: var(--color-text-secondary);
+  --accent: var(--color-surface-raised-strong);
+  --accent-foreground: var(--color-text-primary);
+  --destructive: var(--color-error);
+  --destructive-foreground: var(--color-white);
+  --border: var(--color-border-subtle);
+  --input: var(--color-border-default);
+  --ring: var(--color-focus);
+  --sidebar: var(--color-surface-primary);
+  --sidebar-foreground: var(--color-text-primary);
+  --sidebar-primary: var(--color-text-primary);
+  --sidebar-primary-foreground: var(--color-surface-primary);
+  --sidebar-accent: var(--color-surface-raised);
+  --sidebar-accent-foreground: var(--color-text-primary);
+  --sidebar-border: var(--color-border-subtle);
+  --sidebar-ring: var(--color-focus);
+}
+
+.dark {
+  /* --- 2. semantics (dark) — Paper's --color-dark-* namespace ------------ */
+  --color-surface-primary: oklch(0% 0 0);
+  --color-surface-secondary: oklch(0% 0 0);
+  --color-surface-raised: oklch(19.5% 0 0);
+  --color-surface-raised-strong: oklch(31% 0 0);
+  --color-surface-contrast: oklch(94.6% 0 0);
+
+  --color-text-primary: oklch(94.6% 0 0);
+  --color-text-secondary: oklch(70.6% 0 0);
+  --color-text-on-contrast: oklch(0% 0 0);
+  --color-text-on-contrast-secondary: oklch(42% 0 0);
+
+  --color-border-subtle: oklch(100% 0 0 / 13%);
+  --color-border-default: oklch(100% 0 0 / 14%);
+  --color-border-strong: oklch(100% 0 0 / 54%);
+  --color-border-on-contrast: var(--color-gray-alpha-300);
+
+  --color-focus: oklch(71.7% 0.165 250.8);
+  --color-info: oklch(57.6% 0.232 258.2);
+  --color-success: oklch(73.1% 0.216 148.3);
+  --color-warning: oklch(77.2% 0.199 64.3);
+  --color-error: oklch(62.6% 0.223 23);
+  --color-link: oklch(66% 0.19 253);
+
+  --color-chart-1: oklch(94.6% 0 0);
+  --color-chart-2: oklch(70.6% 0 0);
+  --color-chart-3: oklch(59% 0 0);
+
+  --destructive-foreground: var(--color-black);
+}
+
+/*
+ * Layer 3.
+ *
+ * `inline` means Tailwind registers these names as theme entries and inlines
+ * their declared value into utilities -- it does NOT re-emit them at `:root`.
+ * That is why several entries below look like no-ops (`--color-success:
+ * var(--color-success)`): the variable is already defined above, and this line
+ * is what tells Tailwind to generate `bg-success` / `text-success` for it.
+ * Deleting the "redundant" ones deletes the utilities. The pairs that do rename
+ * something (`--color-fg` -> `--color-text-primary`) exist so components type
+ * `text-fg` instead of `text-text-primary`.
+ *
+ * Blocks 1 and 2 stay plain CSS rather than moving in here on purpose: `@theme`
+ * tree-shakes anything no utility references, and the primitives are referenced
+ * only by other variables. A shaken `--color-gray-100` would take
+ * `--color-surface-raised` down with it, in light mode only, at build time.
+ */
+@theme inline {
+  /* --- 3. aliases: what components actually type ------------------------ */
+  --color-surface: var(--color-surface-primary);
+  --color-surface-muted: var(--color-surface-secondary);
+  --color-raised: var(--color-surface-raised);
+  --color-raised-strong: var(--color-surface-raised-strong);
+  --color-contrast: var(--color-surface-contrast);
+
+  --color-fg: var(--color-text-primary);
+  --color-fg-muted: var(--color-text-secondary);
+  --color-on-contrast: var(--color-text-on-contrast);
+  --color-on-contrast-muted: var(--color-text-on-contrast-secondary);
+
+  --color-line-subtle: var(--color-border-subtle);
+  --color-line: var(--color-border-default);
+  --color-line-strong: var(--color-border-strong);
+  --color-line-on-contrast: var(--color-border-on-contrast);
+
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-error: var(--color-error);
+  --color-info: var(--color-info);
+  --color-focus: var(--color-focus);
+  --color-link: var(--color-link);
+
+  --color-traffic-close: var(--color-traffic-close);
+  --color-traffic-minimize: var(--color-traffic-minimize);
+  --color-traffic-zoom: var(--color-traffic-zoom);
+
+  /* shadcn contract */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--color-chart-1);
+  --color-chart-2: var(--color-chart-2);
+  --color-chart-3: var(--color-chart-3);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --text-metadata: var(--text-metadata);
+  --text-metadata--line-height: var(--leading-caption);
+  --text-label: var(--text-label);
+  --text-label--line-height: var(--leading-caption);
+  --text-compact: var(--text-compact);
+  --text-compact--line-height: var(--leading-compact);
+  --text-ui: var(--text-ui);
+  --text-ui--line-height: var(--leading-compact);
+  --text-body: var(--text-body);
+  --text-body--line-height: var(--leading-body);
+  --text-lede: var(--text-lede);
+  --text-lede--line-height: var(--leading-lede);
+  --text-subsection: var(--text-subsection);
+  --text-subsection--line-height: var(--leading-subsection);
+  --text-section: var(--text-section);
+  --text-section--line-height: var(--leading-section);
+  --text-title: var(--text-title);
+  --text-title--line-height: var(--leading-title);
+  --text-page-title: var(--text-page-title);
+  --text-page-title--line-height: var(--leading-page-title);
+  --text-display: var(--text-display);
+  --text-display--line-height: var(--leading-display);
+
+  --font-weight-regular: var(--font-weight-regular);
+  --font-weight-heading: var(--font-weight-heading);
+  --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: var(--font-weight-semibold);
+
+  --tracking-display: var(--tracking-display);
+  --tracking-section: var(--tracking-section);
+  --tracking-subsection: var(--tracking-subsection);
+
+  --radius-small: var(--radius-small);
+  --radius-default: var(--radius-default);
+  --radius-bubble: var(--radius-bubble);
+  --radius-composer: var(--radius-composer);
+  --radius-pill: var(--radius-pill);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --breakpoint-tablet: 600px;
+  --breakpoint-desktop: 1001px;
+  --container-reading: 68ch;
+  --container-content: 1200px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    /* Evie is a desktop-shaped app first. Rubber-banding the whole document
+     * behind a fixed chrome reads as a bug, so scrolling belongs to panes. */
+    overscroll-behavior: none;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /*
+   * AGENTS.md: no continuously repainting animation. Users leave Evie open all
+   * day on 120 Hz displays, and a shimmer or a 60 fps pulse pegs the GPU for
+   * the entire session. Motion here is state change only -- it starts, it
+   * finishes, it stops. Anything that needs to say "still working" ticks on a
+   * 1s steps() interval (see .evie-thinking below).
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /*
+   * The one indicator allowed to loop. steps(4) means four discrete repaints
+   * per second instead of a per-frame interpolation -- 4 composites/s against
+   * 120 on a gradient sweep.
+   */
+  .evie-thinking::after {
+    content: "";
+    animation: evie-ellipsis 1s steps(4, jump-none) infinite;
+  }
+}
+
+@keyframes evie-ellipsis {
+  0% {
+    content: "";
+  }
+  25% {
+    content: "·";
+  }
+  50% {
+    content: "··";
+  }
+  75% {
+    content: "···";
+  }
+}

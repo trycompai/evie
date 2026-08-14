@@ -1,0 +1,41 @@
+{
+  "name": "@evie/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint",
+    "check-types": "tsc -b --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@evie/client-runtime": "workspace:*",
+    "@evie/contracts": "workspace:*",
+    "@evie/ui": "workspace:*",
+    "better-auth": "^1.6.29",
+    "effect": "4.0.0-rc.109",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@evie/eslint-config": "workspace:*",
+    "@evie/typescript-config": "workspace:*",
+    "@rolldown/plugin-babel": "^0.2.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "tailwindcss": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "typescript": "5.9.2",
+    "vite": "^8.2.0",
+    "vitest": "^3.2.4"
+  }
+}

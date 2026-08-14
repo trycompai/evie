@@ -1,0 +1,118 @@
+# The performance budget, and where each rule is enforced
+
+Evie users leave the app open all day and drive agents through it. They notice a
+dropped frame, a lying spinner, and a stale label. This file is the list of
+budgets from [`specs/04-clients.md`](../../specs/04-clients.md) with the code
+that keeps each one, so a review can check the mechanism instead of trusting the
+intent.
+
+Every entry here is a thing that looks fine in a screenshot and only shows up
+when a thread is long or a turn is streaming. That is why they are written down.
+
+| Budget | Limit | Kept by |
+| --- | --- | --- |
+| Thread open (2,000 items) to first paint | < 100 ms | Virtualized list; only ~30 rows mount. [`timeline.tsx`](../../apps/web/src/components/timeline.tsx) |
+| React commits during streaming | ≤ 1 per animation frame | Row-level subscriptions + frame coalescing. [`store.ts`](../../packages/client-runtime/src/store.ts) |
+| Sustained WS bytes for one streaming turn | < 40 KB/s | Suffix deltas, reasoning opt-in, 8 KiB tool cap. [`hub.ts`](../../apps/server/src/gateway/hub.ts) |
+| Idle CPU, thread open, nothing running | ~0%. No timers, no polling, no rAF loop. | Demand-scheduled flush; no `setInterval` anywhere. |
+| Main-thread long tasks during streaming | none > 50 ms | Per-block memoized Markdown; one shared `ResizeObserver`. |
+
+## The five mechanisms
+
+### 1. A frame changes the identity of exactly what it touched
+
+`Timeline.apply` replaces one item object and leaves every other one
+referentially identical, so `TimelineRow`'s `memo` skips them.
+
+Rebuilding the map or the order array on every frame passes every content test
+and fails the budget silently — the app just gets slow with a thread open. That
+is why the identity assertions are in
+[`timeline.test.ts`](../../packages/client-runtime/test/timeline.test.ts) rather
+than left to review.
+
+**Watch for:** `new Map(...)` or `[...items]` inside `apply`; a `sort` that runs
+when nothing was inserted.
+
+### 2. Subscribe per row, not per thread
+
+`store.subscribeItem(threadId, itemId)` exists because a thread-level
+subscription re-renders the list container on every 50 ms frame. On a 2,000-row
+thread that is 2,000 memo comparisons twenty times a second to discover that one
+row changed.
+
+`getItemSnapshot` must be referentially stable. A getter that builds a fresh
+object per call makes `useSyncExternalStore` loop forever, and it is the single
+easiest way to get this wrong.
+
+**Watch for:** a new hook that reads the whole timeline to render one row.
+
+### 3. The flush is demand-scheduled, not periodic
+
+The first pending delta arms a 50 ms timeout; the flush sends the frame and
+disarms it. **An idle thread has no timer at all.**
+
+The obvious implementation — a `setInterval` per subscriber — quietly breaks the
+idle-CPU budget: a user with eight threads open and nothing running would wake
+the process 160 times a second to decide it has nothing to say.
+
+**Watch for:** `setInterval`, and any `setTimeout` that re-arms itself
+unconditionally.
+
+### 4. Nothing repaints continuously
+
+CSS animations that repaint every frame peg the GPU on a 120 Hz display, and
+Evie is open all day. No shimmer, no gradient sweep, no pulsing dot at 60 fps,
+no spinner.
+
+The one indicator allowed to loop is `.evie-thinking` in
+[`globals.css`](../../packages/ui/src/styles/globals.css), and it ticks on a 1s
+`steps(4)` interval — four discrete repaints a second instead of a per-frame
+interpolation.
+
+Everything else that needs to say "working" says it in words, and the words are
+true (see [status honesty](#status-honesty)).
+
+**Watch for:** `animate-pulse`, `animate-spin`, `animate-[…]` with
+`infinite`, and any gradient with a moving `background-position`.
+
+### 5. Bytes are budgeted before they reach the socket
+
+eve's raw stream re-sends the cumulative text on every delta. Forwarding it
+verbatim is the single easiest way to make Evie feel slow, so the hub:
+
+- sends the **suffix** since the last frame, never the cumulative text;
+- sends reasoning only to a client that opted into that specific block;
+- truncates a tool payload over 8 KiB to head + tail + a blob handle, and the
+  rest is fetched over HTTP on expand — never on the RPC socket;
+- coalesces on mailbox overflow rather than growing the queue, and downgrades a
+  subscriber to `summary` mode after three consecutive overflow windows, telling
+  it so it can show a *catching up* chip instead of looking frozen.
+
+**Watch for:** an RPC that returns bytes; a frame built from full item state
+rather than ops.
+
+## Status honesty
+
+Not a performance rule, but it fails the same way — quietly, and only under
+load. `StatusChip` takes the *state*, not a string, and owns the mapping, so
+there is exactly one place that can put the wrong word on a parked turn.
+
+Never "Thinking" while waiting on a person. That is the lying spinner.
+
+## Measuring
+
+Any PR touching the timeline attaches a before/after profile; motion or timing
+changes attach a short video. What to actually look at:
+
+- **Performance panel, streaming a long reply.** Expect one commit per frame and
+  no long task. A flame chart with 2,000 `TimelineRow` entries per frame means
+  mechanism 1 or 2 broke.
+- **Performance panel, idle with a thread open.** Expect a flat line. Any
+  periodic activity means mechanism 3 broke.
+- **Network panel, one streaming turn.** Expect < 40 KB/s sustained. A spike
+  proportional to message length means suffix deltas broke.
+- **Rendering → Frame Rendering Stats, idle.** Expect no repaints. Any means
+  mechanism 4 broke.
+
+The reference machine is whatever the maintainer is on; the limits are absolute,
+not relative, because a user's laptop is not the reference machine.

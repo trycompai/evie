@@ -1,0 +1,32 @@
+{
+  "name": "@evie/client-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.ts",
+    "./store": "./src/store.ts",
+    "./timeline": "./src/timeline.ts",
+    "./commands": "./src/commands.ts",
+    "./presence": "./src/presence.ts",
+    "./auth": "./src/auth.ts"
+  },
+  "scripts": {
+    "lint": "eslint",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@better-auth/passkey": "^1.6.29",
+    "@evie/contracts": "workspace:*",
+    "better-auth": "^1.6.29",
+    "effect": "4.0.0-rc.109"
+  },
+  "devDependencies": {
+    "@evie/eslint-config": "workspace:*",
+    "@evie/typescript-config": "workspace:*",
+    "eslint": "^9.39.1",
+    "typescript": "5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

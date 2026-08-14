@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@evie/typescript-config/react-library.json",
+  "compilerOptions": {
+    // This package is just-in-time: the consuming app's bundler compiles the
+    // source, so nothing is ever emitted from here and resolution follows the
+    // bundler's rules rather than Node's.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    // @evie/contracts is just-in-time too, and its imports carry .ts. Checking
+    // this package pulls that source in, so the flag has to be on here as well.
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false,
+    // Lets components inside this package import each other by the same
+    // specifier apps use, which is what the shadcn CLI writes.
+    "paths": {
+      "@evie/ui/*": ["./src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}

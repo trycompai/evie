@@ -33,6 +33,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Worktree-local Evie state. A dev server writes here, never to ~/.evie --
+# that is the developer's real database and it is open while you work.
+.evie/
+
 # Misc
 .DS_Store
 *.pem
+
+# API cheat-sheets extracted from the vendored source for agents mid-build.
+# Regenerable, machine-written, and not review material.
+/.evie-build-notes/

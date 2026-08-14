@@ -1,5 +1,7 @@
 # Evie
 
+IMPORTANT: YOU MUST ALWAYS REVIEW @specs/MODELS.md BEFORE STARTING ANY WORK.
+
 Evie is a minimal GUI for eve agents. You can think of Evie as an open source "bring-your-own-key" alternative to apps like Bot (x.ai/bot).
 
 ## What makes Evie special?
@@ -26,6 +28,9 @@ Evie has 2 key app surfaces: **web** and **desktop**.
 
 **Desktop** is the main surface most users install first. It's a full Electron app that bundles the server runner as well. The desktop app can also be used as the host server, allowing remote connections from tryevie.
 
+## 5. Picking the right models for workflows and subagents
+IMPORTANT: YOU MUST ALWAYS REVIEW @specs/MODELS.md BEFORE STARTING ANY WORK.
+
 ## A note from the maintainers
 
 I like ambitious ideas, simple systems, and software that feels obvious. Do not preserve complexity just because it already exists. Do not introduce machinery because it looks architecturally impressive. Understand the real constraint, then fight for the smallest model that makes the correct behavior unsurprising.
@@ -51,9 +56,9 @@ We need to be on the same page with terminology. When communicating, use this la
 - **turn** means one user-to-agent cycle, including follow-up work such as checkpointing.
 - **Evie home** means the base data directory. Runtime state normally lives below its userdata directory.
 
-## The three ways to hurt yourself
+## The two ways to hurt yourself
 
-1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID you found by matching a name, path, or worktree string. Your own agent process has this worktree's path in its argv, and this machine runs several other dev servers at once. Kill only a PID you captured at spawn, or the owner of your port from `ss -H -ltnp` after confirming `/proc/<pid>/cwd` is your worktree.
+1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID you found by matching a name, path, or worktree string. Your own agent process has this worktree's path in its argv, and this machine runs several other dev servers at once. Kill only a PID you captured at spawn, or the owner of your port from `lsof -nP -iTCP:<port> -sTCP:LISTEN` after confirming `lsof -a -p <pid> -d cwd` points at your worktree.
 2. **Writing to the live install.** `~/.evie/userdata` is the developer's real Evie database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
 
 ## Hit every surface
@@ -70,7 +75,7 @@ The most common defect in this repo is a change that works on the path you teste
 ## Dev servers
 
 - `bun i` from the repo root installs the whole workspace. If module resolution looks broken, `node_modules` is missing or stale — install again. Add a dependency in the package that uses it (`cd packages/ui && bun add lodash`), never as a root app dependency.
-- `turbo dev` starts every persistent `dev` task (web on 3000, docs on 3001). Narrow with `--filter=web` or `--filter=./apps/*`. Do not `cd` into an app and `bun run dev` when other packages need to run with it — that bypasses Turborepo's graph. `bun run dev` at the root is the same pipeline (`turbo run`); `turbo dev` is the terminal shorthand.
+- `turbo dev` starts every persistent `dev` task (web on 3000, server on 3001, landing on 3002). Narrow with `--filter=web` or `--filter=./apps/*`. Do not `cd` into an app and `bun run dev` when other packages need to run with it — that bypasses Turborepo's graph. `bun run dev` at the root is the same pipeline (`turbo run`); `turbo dev` is the terminal shorthand.
 - `dev` is `cache: false` and `persistent: true`. Do not treat it like a cacheable build. Pass package-script args after `--`.
 - Read the real URLs from turbo's TUI / Next.js output. Occupied ports shift.
 - Never start a server against `~/.evie`. Worktree state belongs in that worktree's gitignored `.evie`.
@@ -96,11 +101,12 @@ An empty database is a bad test. Seed your worktree's `.evie` with a copy of rea
 
 ## Verifying
 
-- Smallest proof that the change works. `vp test run <files>` for the tests you touched, targeted lint and typecheck for the scope you changed.
-- **Do not run repo-wide checks.** No `vp check`, no `vp run -r test`, no `vp run -r typecheck` unless I ask. CI owns the full suite.
+- Smallest proof that the change works. `bun test <files>` for the tests you touched, then targeted checks for the scope you changed: `turbo run lint check-types --filter=@evie/<pkg>`.
+- **Do not run repo-wide checks.** Always pass a `--filter`. No bare `turbo run lint`, `turbo run check-types`, or `turbo run test`, and no `bun run lint` / `bun run check-types` from the root, unless I ask. CI owns the full suite.
+- `--filter=@evie/<pkg>` runs one package; `--filter=...@evie/<pkg>` adds its dependents when you changed something they consume. `--affected` scopes to what changed against the base branch.
 - Backend behavior changes ship with focused tests for that behavior.
 - The server is event-sourced and its async flows emit typed receipts. Wait on receipts and worker drains, never on sleeps or polling. A test that needs a timeout to pass is wrong.
-- Upon request, user-visible frontend changes should get one integrated pass in a real client: `test-evie-app` for web, `test-evie-desktop` for desktop. The primary agent does this once after integrating. Subagents do not launch their own dev servers. Ask permission before doing computer use or spinning up browsers.
+- Upon request, user-visible frontend changes should get one integrated pass in a real client. Use the `run` skill, which knows how to launch this project's app. The primary agent does this once after integrating. Subagents do not launch their own dev servers. Ask permission before doing computer use or spinning up browsers.
 
 ## Pull requests
 
@@ -115,16 +121,56 @@ An empty database is a bad test. Seed your worktree's `.evie` with a copy of rea
 
 Clients send typed WebSocket requests. The server turns them into _commands_, a pure _decider_ turns commands into persisted _events_, and a _projector_ derives the read model the UI renders. Provider CLIs run as subprocesses; per-provider _adapters_ translate their native protocols into orchestration events. Side effects run in queue-backed _reactors_ that emit _receipts_ when milestones land. Each turn ends with a _checkpoint_, a hidden git ref, so the app can diff and restore.
 
-Full glossary with file links: `docs/internals/glossary.md`
+One correction to the paragraph above, because the word is load-bearing: reactors are **not**
+queue-backed. They are durable subscriptions over the event log with a persisted cursor. An
+in-memory queue plus a durable log loses work on restart — the event is on disk forever and the turn
+it demanded never runs. See `docs/internals/glossary.md` and `specs/02-architecture.md`.
+
+Full glossary with file links: `docs/internals/glossary.md`.
 
 ## Where code lives
 
-- `apps/server` - WebSocket, orchestration, providers, checkpointing. Effect-heavy: read `.repos/effect-smol/LLMS.md` before writing Effect code.
-- `apps/web` - React/Vite UI. `apps/desktop` wraps it, `apps/mobile` is React Native, `apps/marketing` is the site.
-- `packages/contracts` - Effect/Schema contracts plus small derived helpers. No heavy runtime logic.
-- `packages/shared` - shared runtime utils, subpath exports, no barrel.
-- `packages/client-runtime` - client code shared by web and mobile.
-- `.repos/` - vendored read-only references. Prefer their patterns over invented ones. Never edit or import from them. Sync with `vpr sync:repos` when bumping the matching dependency.
+Everything in this workspace is scoped `@evie/*`.
+
+- `apps/server` - `@evie/server`. WebSocket gateway, orchestration, providers, checkpointing. Effect-heavy: read `.repos/effect/LLMS.md` before writing Effect code.
+- `apps/web` - `@evie/web`. React 19 + Vite 8 UI.
+- `apps/landing` - `@evie/landing`. Next 16, the tryevie.ai marketing site.
+- `packages/contracts` - `@evie/contracts`. Effect Schema wire contracts and the `RpcGroup`. No heavy runtime logic.
+- `packages/client-runtime` - `@evie/client-runtime`. RPC client, store, timeline projection. Zero DOM beyond `WebSocket`.
+- `packages/shared` - `@evie/shared`. Runtime utils. Subpath exports, no barrel.
+- `packages/ui` - `@evie/ui`. Design system: shadcn `base-nova` on `@base-ui/react`, Tailwind 4, Geist. Tokens are ported 1:1 from the "Evie" Paper file; see the header of `src/styles/globals.css`.
+- `packages/eslint-config`, `packages/typescript-config` - shared config.
+- `.repos/` - vendored read-only library source. See [Vendored repositories](#vendored-repositories).
+- `specs/` - the design, settled before it is built. Read `specs/README.md` first.
+- `docs/` - what exists, split by audience. See `docs/README.md`.
+
+Not built yet, so check before assuming a path is there: `apps/desktop` (Electron shell, bundles the
+server). Its design is settled in `specs/07-state-of-the-build.md`.
+
+**Every `@evie/*` package is just-in-time**: it exports raw `.ts`/`.tsx` and emits nothing. Two
+consequences neither of which is discoverable from a stack trace — an app that imports one must list
+it in `optimizeDeps.exclude`, and Tailwind must be pointed at its source with `@source`. Both are
+already done in `apps/web`; copy them into any new app.
+
+## Vendored repositories
+
+This project vendors external repositories under `.repos/` as git subtrees so agents can read real library source instead of guessing from docs or `node_modules`.
+
+- Use vendored repositories as read-only reference material when working with related libraries.
+- Prefer examples and patterns from the vendored source over generated guesses or web search results.
+- Do not edit files under `.repos/` unless explicitly asked.
+- Do not import from `.repos/` — application code should continue importing from normal package dependencies.
+
+When writing Effect code, first read `.repos/effect/LLMS.md` completely, then inspect `.repos/effect/` for idiomatic usage, tests, module structure, and API design. Treat it as the source of truth for Effect patterns.
+
+When writing Alchemy (Infrastructure-as-Effects) code, first read `.repos/alchemy/AGENTS.md` completely, then inspect `.repos/alchemy/` — especially `packages/alchemy/` and `examples/` — for resource, binding, and stack patterns. Treat it as the source of truth for Alchemy.
+
+To pull updates:
+
+```bash
+git subtree pull --prefix=.repos/effect https://github.com/Effect-TS/effect.git main --squash
+git subtree pull --prefix=.repos/alchemy https://github.com/alchemy-run/alchemy.git main --squash
+```
 
 ## Taste
 
