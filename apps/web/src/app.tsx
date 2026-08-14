@@ -2,7 +2,8 @@ import { useState } from "react"
 import type { BotId, ThreadId } from "@evie/contracts/ids"
 import type { BotShape, BotTone } from "@evie/ui/components/bot-mark"
 import { AppRail } from "~/components/app-rail.tsx"
-import { useConnection, useFleet } from "~/lib/hooks.ts"
+import { IS_DESKTOP } from "~/lib/desktop.ts"
+import { useConnection, useDeepLink, useFleet } from "~/lib/hooks.ts"
 import { useRuntime } from "~/lib/runtime.ts"
 import { EmptyPane, ThreadPane } from "~/screens/chat.tsx"
 import { ConnectAppsScreen } from "~/screens/connect-apps.tsx"
@@ -22,8 +23,6 @@ import { PluginsDialog } from "~/screens/plugins.tsx"
  */
 
 type Onboarding = "meet" | "connect" | "done"
-
-const IS_DESKTOP = typeof globalThis.navigator !== "undefined" && "evie" in globalThis
 
 export function App() {
   const connection = useConnection()
@@ -56,9 +55,11 @@ function Signed() {
   const runtime = useRuntime()
   const { bots, threads } = useFleet()
   const session = runtime.store.getSession()
+  const deepLink = useDeepLink()
 
   const [onboarding, setOnboarding] = useState<Onboarding>(bots.length > 0 ? "done" : "meet")
   const [selectedThread, setSelectedThread] = useState<ThreadId | null>(null)
+  const [linkSeen, setLinkSeen] = useState(0)
   const [composingBot, setComposingBot] = useState(bots.length === 0)
   const [pluginsOpen, setPluginsOpen] = useState(false)
 
@@ -70,6 +71,23 @@ function Signed() {
   const [creating, setCreating] = useState(false)
 
   const [connected, setConnected] = useState<ReadonlySet<string>>(new Set())
+
+  /*
+   * A deep link arriving from the shell selects its thread. Handled during
+   * render rather than in an effect: a new `seq` is new information, and
+   * reacting to new information by setting state before paint is what React
+   * asks for -- an effect would render the old selection first and correct it
+   * a frame later, which on a link that opens the window is a visible flash.
+   */
+  if (deepLink !== null && deepLink.seq !== linkSeen) {
+    setLinkSeen(deepLink.seq)
+    if (deepLink.link.kind === "thread") {
+      setSelectedThread(deepLink.link.threadId as ThreadId)
+      setComposingBot(false)
+      setPluginsOpen(false)
+      setOnboarding("done")
+    }
+  }
 
   if (!session) return <LaunchScreen state="opening" onReopen={reload} onCancel={close} />
 

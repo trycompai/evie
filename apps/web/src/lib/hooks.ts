@@ -4,6 +4,7 @@ import type { TimelineItem } from "@evie/contracts/timeline"
 import type { ConnectionState } from "@evie/client-runtime/client"
 import type { FleetSnapshot } from "@evie/client-runtime/store"
 import type { TimelineSnapshot } from "@evie/client-runtime/timeline"
+import { deepLinkStore, type DeepLinkEvent } from "./desktop.ts"
 import { useRuntime } from "./runtime.ts"
 
 /**
@@ -64,4 +65,15 @@ export function useTimelineItem(threadId: ThreadId, itemId: string): TimelineIte
   )
   const snapshot = useCallback(() => store.getItemSnapshot(threadId, itemId), [store, threadId, itemId])
   return useSyncExternalStore(subscribe, snapshot)
+}
+
+/**
+ * The most recent `evie://` link the desktop shell delivered, or null.
+ *
+ * Always null in a browser -- the store is there, nothing ever writes to it.
+ * Callers act on a *change* in `seq` during render rather than in an effect;
+ * see `App`, which turns a new thread link into a selection.
+ */
+export function useDeepLink(): DeepLinkEvent | null {
+  return useSyncExternalStore(deepLinkStore.subscribe, deepLinkStore.snapshot, () => null)
 }

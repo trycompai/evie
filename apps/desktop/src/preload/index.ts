@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron"
-import { CHANNEL, type DeepLink, type EvieBridge, type ServerStatus } from "../shared/bridge.ts"
+import { CHANNEL, type DeepLink, type EvieBridge, type ServerStatus } from "@evie/shared/desktop-bridge"
 
 /**
  * The preload. Runs sandboxed with no Node access of its own beyond `electron`,

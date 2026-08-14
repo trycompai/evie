@@ -8,12 +8,17 @@
     "icons": "node scripts/icons.mjs",
     "bundle": "node scripts/build.mjs",
     "build": "bun run icons && bun run bundle",
-    "dev": "bun run build && electron out/main.cjs",
+    "dev": "bun run build && electron .",
     "lint": "eslint",
     "check-types": "tsc --noEmit"
   },
+  "dependencies": {
+    "@evie/shared": "workspace:*"
+  },
   "devDependencies": {
     "@evie/eslint-config": "workspace:*",
+    "@evie/server": "workspace:*",
+    "@evie/web": "workspace:*",
     "@evie/typescript-config": "workspace:*",
     "@types/node": "^24.13.3",
     "electron": "^40.1.0",

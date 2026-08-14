@@ -1,6 +1,6 @@
-import { join } from "node:path"
 import { BrowserWindow, nativeTheme, shell, app } from "electron"
-import { CHANNEL, type DeepLink, type ServerStatus } from "../shared/bridge.ts"
+import { preloadScript } from "./paths.ts"
+import { CHANNEL, type DeepLink, type ServerStatus } from "@evie/shared/desktop-bridge"
 
 /**
  * The one window.
@@ -57,7 +57,7 @@ export class MainWindow {
       // and no empty frame while the first RPC round-trip lands.
       show: false,
       webPreferences: {
-        preload: join(app.getAppPath(), "out", "preload.cjs"),
+        preload: preloadScript,
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,

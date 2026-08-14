@@ -13,9 +13,14 @@
     "apps/desktop": {
       "name": "@evie/desktop",
       "version": "0.0.0",
+      "dependencies": {
+        "@evie/shared": "workspace:*",
+      },
       "devDependencies": {
         "@evie/eslint-config": "workspace:*",
+        "@evie/server": "workspace:*",
         "@evie/typescript-config": "workspace:*",
+        "@evie/web": "workspace:*",
         "@types/node": "^24.13.3",
         "electron": "^40.1.0",
         "esbuild": "^0.25.10",
@@ -76,6 +81,7 @@
       "dependencies": {
         "@evie/client-runtime": "workspace:*",
         "@evie/contracts": "workspace:*",
+        "@evie/shared": "workspace:*",
         "@evie/ui": "workspace:*",
         "better-auth": "^1.6.29",
         "effect": "4.0.0-rc.109",

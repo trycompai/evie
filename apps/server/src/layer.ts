@@ -92,7 +92,7 @@ const ReactorsLive = Layer.mergeAll(
   CheckpointReactorLive.pipe(
     Layer.provide([DbLive, EventStoreLive, WakeLive, CheckpointSourcesL, NodeLive]),
   ),
-  NotifyReactorLive.pipe(Layer.provide([DbLive, EventStoreLive, WakeLive, Notifier.layerNoop])),
+  NotifyReactorLive.pipe(Layer.provide([DbLive, EventStoreLive, WakeLive, Notifier.layerDefault])),
   // Scaffold lives here, not on the projector: provisioning a bot runs
   // `npm install` and belongs behind the health chip, not inside a projection.
   SupervisorReactorLive.pipe(
@@ -112,7 +112,7 @@ const ReactorsLive = Layer.mergeAll(
 
 const GatewayReady = GatewayLive.pipe(
   Layer.provide(GatewayAuthLive.pipe(Layer.provide([AuthLive, DbLive]))),
-  Layer.provide([ConfigLive, DbLive, EventStoreLive, HubLive, WakeLive, SecretsLive]),
+  Layer.provide([ConfigLive, DbLive, EventStoreLive, HubLive, WakeLive, SecretsLive, AuthLive]),
   Layer.provide(ReactorsLive),
 )
 

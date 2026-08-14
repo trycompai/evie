@@ -1,5 +1,5 @@
 import { app, dialog, ipcMain } from "electron"
-import { CHANNEL, parseDeepLink, type DeepLink, type ServerStatus } from "../shared/bridge.ts"
+import { CHANNEL, parseDeepLink, type DeepLink, type ServerStatus } from "@evie/shared/desktop-bridge"
 import { parseNotify, showNotification } from "./notifications.ts"
 import { EvieServer } from "./server.ts"
 import { EvieTray } from "./tray.ts"
@@ -40,7 +40,21 @@ const shell = new (class {
     this.tray.status(status)
     this.window.status(status)
     if (status.kind === "failed") {
-      dialog.showErrorBox("Evie could not start", status.reason)
+      // Deliberately not `showErrorBox`, which blocks the main process on a
+      // modal before the tray exists -- the app then looks frozen rather than
+      // broken, with no way to quit it. This stays on the message loop.
+      void dialog.showMessageBox({
+        type: "error",
+        title: "Evie could not start",
+        message: "The Evie server stopped.",
+        detail: status.reason,
+        buttons: ["Quit", "Try Again"],
+        defaultId: 1,
+        cancelId: 0,
+      }).then((choice) => {
+        if (choice.response === 1) void this.restart()
+        else void this.quit()
+      })
     }
   }
 

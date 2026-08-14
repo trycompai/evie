@@ -1,5 +1,5 @@
 import { build } from "esbuild"
-import { cpSync, existsSync, readFileSync, rmSync } from "node:fs"
+import { cpSync, existsSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -18,9 +18,11 @@ import { fileURLToPath } from "node:url"
  * resolves them at build time, which also means the packaged app carries one
  * file instead of a workspace.
  *
- * Its runtime dependencies stay external: `effect` and `better-auth` both do
- * things at load time that survive bundling badly, and there is nothing to gain
- * from inlining them into a local binary.
+ * Nothing is left external. Bun installs each workspace in isolation, so
+ * `apps/server`'s dependencies live under `apps/server/node_modules` and an
+ * external import from `apps/desktop/out/` cannot resolve them -- and a
+ * packaged `.app` has no workspace to resolve against at all. Self-contained is
+ * both the only thing that works here and the thing packaging needs anyway.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -28,12 +30,6 @@ const ROOT = join(HERE, "..")
 const OUT = join(ROOT, "out")
 const SERVER = join(ROOT, "..", "server")
 const WEB_DIST = join(ROOT, "..", "web", "dist")
-
-/** Everything `@evie/server` declares except the workspace packages, which must inline. */
-const serverExternals = () => {
-  const manifest = JSON.parse(readFileSync(join(SERVER, "package.json"), "utf8"))
-  return Object.keys(manifest.dependencies ?? {}).filter((name) => !name.startsWith("@evie/"))
-}
 
 const common = {
   bundle: true,
@@ -72,7 +68,9 @@ await build({
       "const require = __createRequire(import.meta.url)",
     ].join("\n"),
   },
-  external: serverExternals(),
+  // `node:sqlite` and friends are provided by the host; Electron 40 embeds
+  // Node 24, which is where the server's one hard requirement comes from.
+  packages: undefined,
 })
 
 /* --- the web app -------------------------------------------------------------

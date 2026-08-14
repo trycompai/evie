@@ -1,10 +1,13 @@
 /**
  * The contract between the Electron shell and the web app it wraps.
  *
- * `apps/web` detects desktop with `"evie" in globalThis` and switches on it in
- * three places (window controls, drag regions, the account row). This file is
- * the only definition of what that global is; the preload builds it and the web
- * app's `~/lib/desktop.ts` reads it back through the same types.
+ * It lives here, in a package both surfaces already depend on, because a
+ * duplicated copy on each side is a drift bug waiting for the first person who
+ * adds a channel to only one of them. Nothing in this file imports Electron --
+ * it is types plus one parser -- so the browser build carries it at no cost.
+ *
+ * `apps/desktop`'s preload builds the object and exposes it on `window.evie`;
+ * `apps/web`'s `~/lib/desktop.ts` reads it back through these same types.
  *
  * Kept deliberately small. Everything the app can already do over the RPC
  * socket it keeps doing over the RPC socket -- this bridge is for the four

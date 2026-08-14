@@ -39,7 +39,41 @@ export class Notifier extends Context.Service<Notifier, NotifierShape>()("Notifi
   static readonly layerNoop = Layer.succeed(Notifier, {
     deliver: () => Effect.succeed(false),
   })
+
+  /**
+   * One line per notification on stdout, for a launcher that owns this process
+   * as a child -- today the Electron shell, which turns each line into a native
+   * notification (`apps/desktop/src/main/notifications.ts`).
+   *
+   * A prefixed line rather than a socket or an extra fd because the parent is
+   * already reading stdout to find the ready URL, and a transport you can see
+   * in a log is a transport you can debug. The reactor keeps every decision
+   * about *whether* to notify; this only carries the result out of the process.
+   */
+  static readonly layerStdout = Layer.succeed(Notifier, {
+    deliver: (notification) =>
+      Effect.sync(() => {
+        process.stdout.write(
+          `${NOTIFY_PREFIX}${JSON.stringify({
+            title: notification.title,
+            body: notification.body,
+            threadId: notification.threadId,
+          })}\n`,
+        )
+        return true
+      }),
+  })
+
+  /** Chosen by the environment the launcher set up, so `layer.ts` stays declarative. */
+  static readonly layerDefault = Layer.unwrap(
+    Effect.sync(() =>
+      process.env["EVIE_NOTIFY_STDOUT"] === "1" ? Notifier.layerStdout : Notifier.layerNoop,
+    ),
+  )
 }
+
+/** Shared with `apps/desktop`, which slices it off the front of each line. */
+export const NOTIFY_PREFIX = "@@evie-notify@@ "
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient

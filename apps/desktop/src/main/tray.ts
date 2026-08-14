@@ -1,6 +1,6 @@
-import { join } from "node:path"
-import { app, Menu, Tray, nativeImage } from "electron"
-import type { ServerStatus } from "../shared/bridge.ts"
+import { Menu, Tray, nativeImage } from "electron"
+import { trayIcon } from "./paths.ts"
+import type { ServerStatus } from "@evie/shared/desktop-bridge"
 
 /**
  * The menu bar item, and the only place Evie can actually be quit.
@@ -42,7 +42,7 @@ export class EvieTray {
   create(): void {
     // A template image is a black-and-alpha mask that macOS recolours for the
     // menu bar, so it stays legible in light mode, dark mode, and inverted.
-    const icon = nativeImage.createFromPath(join(app.getAppPath(), "out", "trayTemplate.png"))
+    const icon = nativeImage.createFromPath(trayIcon)
     icon.setTemplateImage(true)
     const tray = new Tray(icon)
     tray.setToolTip("Evie")

@@ -1,10 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
-import { homedir } from "node:os"
-import { join } from "node:path"
-import { app } from "electron"
-import type { ServerStatus } from "../shared/bridge.ts"
+import { evieHome, serverEntry, webDist } from "./paths.ts"
+import type { ServerStatus } from "@evie/shared/desktop-bridge"
 
 /**
  * The Evie server, owned as a child process.
@@ -43,25 +41,6 @@ export interface ServerOptions {
   readonly onNotify: (line: string) => void
   /** Every stdout/stderr line, for the log file and the dev console. */
   readonly onLog: (line: string) => void
-}
-
-/**
- * Where the server's data lives.
- *
- * Packaged, this *is* the live install, which is what `EVIE_ALLOW_LIVE_HOME`
- * exists to say out loud. Unpackaged, it deliberately points at the worktree's
- * gitignored `.evie` -- running `bun run dev` in this app must never open the
- * developer's real database, and `assertNotLiveInstall` would refuse anyway.
- */
-const resolveHome = (): { home: string; allowLive: boolean } =>
-  app.isPackaged
-    ? { home: join(homedir(), ".evie"), allowLive: true }
-    : { home: join(app.getAppPath(), "..", "..", ".evie"), allowLive: false }
-
-/** The bundled server and the built web app, beside each other in both modes. */
-const resolveAssets = (): { entry: string; webDist: string } => {
-  const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
-  return { entry: join(base, "out", "server.mjs"), webDist: join(base, "out", "web") }
 }
 
 export class EvieServer {
@@ -149,10 +128,9 @@ export class EvieServer {
   }
 
   #spawn(): void {
-    const { home, allowLive } = resolveHome()
-    const { entry, webDist } = resolveAssets()
-    if (!existsSync(entry)) {
-      this.#fail(`No server bundle at ${entry}. Run \`bun run build\` in apps/desktop.`)
+    const home = evieHome()
+    if (!existsSync(serverEntry)) {
+      this.#fail(`No server bundle at ${serverEntry}. Run \`bun run build\` in apps/desktop.`)
       return
     }
 
@@ -160,7 +138,7 @@ export class EvieServer {
 
     const child = spawn(
       process.execPath,
-      [entry],
+      [serverEntry],
       {
         // `ELECTRON_RUN_AS_NODE` turns this same binary into plain Node 24.
         // `extendEnv` is implicit: the server passes its environment down to
@@ -169,8 +147,8 @@ export class EvieServer {
         env: {
           ...process.env,
           ELECTRON_RUN_AS_NODE: "1",
-          EVIE_HOME: home,
-          ...(allowLive ? { EVIE_ALLOW_LIVE_HOME: "1" } : {}),
+          EVIE_HOME: home.path,
+          ...(home.live ? { EVIE_ALLOW_LIVE_HOME: "1" } : {}),
           EVIE_WEB_DIST: webDist,
           EVIE_LAUNCHER_TOKEN: this.launcherToken,
           // Turns `Notifier.layerNoop` into a real transport: the reactor

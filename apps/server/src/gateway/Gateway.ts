@@ -6,6 +6,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { EvieConfig } from "../config.ts"
 import { HandlersLive } from "./handlers.ts"
 import { HttpRoutesLive, StaticAssetsLive } from "./http.ts"
+import { LauncherRoutesLive } from "./launcher.ts"
 import { EvieRpcAuthed, RpcAuthLive } from "./middleware.ts"
 
 /**
@@ -50,6 +51,6 @@ const ServerLive = Layer.unwrap(
  * the same instance the subscriptions read from.
  */
 export const GatewayLive = HttpRouter.serve(
-  Layer.mergeAll(RpcLive, HttpRoutesLive, StaticAssetsLive),
+  Layer.mergeAll(RpcLive, HttpRoutesLive, LauncherRoutesLive, StaticAssetsLive),
   { disableLogger: true },
 ).pipe(Layer.provide(ServerLive))
