@@ -1,0 +1,98 @@
+---
+title: Websites
+description: Deploy Astro, Next.js, Nuxt, SvelteKit, Waku, Octane, or any static build to AWS with first-class Website resources.
+sidebar:
+  label: Overview
+  order: 1
+---
+
+Alchemy deploys frontends to AWS with a family of `AWS.Website`
+resources. Each one builds your project programmatically and deploys
+it as a serverless site — the SSR server on a streaming Lambda
+Function URL, static assets in a private S3 bucket, and a CloudFront
+distribution whose edge router serves uploaded files from S3 and
+forwards everything else to the server — with no AWS-specific
+configuration: no CDK, no CloudFormation, no adapter setup. Your
+framework's own config file (`astro.config.*`, `nuxt.config.ts`,
+`vite.config.ts`, ...) loads natively; Alchemy layers its AWS
+integration on top.
+
+- [`Astro`](/aws/frontend/astro) — Astro sites, server-rendered or
+  fully static; your `astro.config.*` loads natively.
+- [`Nextjs`](/aws/frontend/nextjs) — Next.js apps built through the
+  OpenNext (`@opennextjs/aws`) pipeline, with streaming SSR, image
+  optimization, and ISR wiring; your `next.config.*` is honored
+  as-is.
+- [`Nuxt`](/aws/frontend/nuxt) — Nuxt apps built through nitro's
+  `aws-lambda` preset; your `nuxt.config.ts` loads natively.
+- [`SvelteKit`](/aws/frontend/sveltekit) — SvelteKit apps with a
+  wrangler-free in-memory AWS adapter; your `vite.config.ts` loads
+  natively.
+- [`Waku`](/aws/frontend/waku) — Waku (React Server Components)
+  apps.
+- [`Octane`](/aws/frontend/octane) — OctaneJS fullstack apps built
+  through your own `vite build` with the AWS marker adapter.
+- [`StaticSite`](/aws/frontend/static-site) — any directory of files,
+  optionally produced by a build command, for static generators like
+  Zola and Hugo or pre-built SPAs.
+- [`Router`](/aws/frontend/static-site#compose-sites-with-a-router) —
+  a shared CloudFront front door: one distribution serving several
+  sites (or a site plus an API), routed at the edge.
+
+Every resource shares the same surface: `domain` (ACM certificate +
+Route 53 records), `server` configuration (memory, timeout,
+environment), `assets`, `edge` customizations, and `invalidation`.
+All builds are memoized by content-hashing the input files — an
+unchanged project skips the build and deploy entirely. Under
+`alchemy dev`, every resource runs the framework's own dev server
+(native HMR) instead of deploying; `Alchemy.remote()` opts back into
+the full live deployment.
+
+## What's supported
+
+| Framework | Resource | Guide |
+| --- | --- | --- |
+| Astro | `Astro` | [Astro](/aws/frontend/astro) |
+| Next.js | `Nextjs` | [Next.js](/aws/frontend/nextjs) |
+| Nuxt | `Nuxt` | [Nuxt](/aws/frontend/nuxt) |
+| SvelteKit | `SvelteKit` | [SvelteKit](/aws/frontend/sveltekit) |
+| Waku | `Waku` | [Waku](/aws/frontend/waku) |
+| OctaneJS (fullstack) | `Octane` | [Octane](/aws/frontend/octane) |
+| Vite SPA (any build) | `StaticSite` | [Static sites](/aws/frontend/static-site) |
+| Zola, Hugo, or any static generator | `StaticSite` | [Static sites](/aws/frontend/static-site) |
+
+Every row is backed by a checked-in example or a live deploy test in
+the Alchemy repository. The last rows are deliberately open-ended:
+`StaticSite` deploys any directory of files (running your build
+command first if you give it one), so any generator works the same
+way.
+
+## How to choose
+
+Use the resource named after your framework. `Astro`, `Nextjs`,
+`Nuxt`, `SvelteKit`, `Waku`, and `Octane` each drive their
+framework's own programmatic build and know its output layout, config
+surface, and dev server.
+
+Use `StaticSite` when the output is plain files — a pre-built SPA, or
+an arbitrary build command that emits a directory (Zola, Hugo, or any
+other generator without a dedicated resource).
+
+Use `Router` when several sites (or a site plus an API) should share
+one CloudFront distribution and one domain — distributions take
+minutes to create, and each custom domain can only attach to one.
+
+## Where next
+
+- [The StaticSite resource](/aws/frontend/static-site) — build
+  commands, SPA/404 handling, Router composition, invalidation.
+- Framework guides:
+  [Astro](/aws/frontend/astro),
+  [Next.js](/aws/frontend/nextjs),
+  [Nuxt](/aws/frontend/nuxt),
+  [SvelteKit](/aws/frontend/sveltekit),
+  [Waku](/aws/frontend/waku),
+  [Octane](/aws/frontend/octane).
+- [`StaticSite` reference](/providers/aws/website/staticsite) and
+  [`Router` reference](/providers/aws/website/router) — every prop
+  and attribute.
