@@ -1,5 +1,5 @@
 import { BotMark } from "@evie/ui/components/bot-mark"
-import { TrafficLights } from "@evie/ui/components/traffic-lights"
+import { DragRegion, WindowControls } from "~/components/window-controls.tsx"
 
 /**
  * The hand-off screen: shown by the desktop app while sign-in continues in the
@@ -76,7 +76,8 @@ function EveWordmark() {
 export function LaunchScreen({ state, onReopen, onCancel, desktop }: LaunchScreenProps) {
   return (
     <div className="relative flex h-full flex-col items-center justify-center gap-10 overflow-hidden bg-surface">
-      {desktop ? <TrafficLights className="absolute left-5 top-5" /> : null}
+      {desktop ? <DragRegion /> : null}
+      {desktop ? <WindowControls className="absolute left-5 top-5" /> : null}
 
       <div className="flex items-center gap-5">
         <BotMark shape="circle" tone={1} size={72} />

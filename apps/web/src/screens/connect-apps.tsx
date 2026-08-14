@@ -2,7 +2,7 @@ import { useState } from "react"
 import { ActionButton } from "@evie/ui/components/action-button"
 import { BrandTile, type BrandId } from "@evie/ui/components/brand-logo"
 import { SearchField } from "@evie/ui/components/search-field"
-import { TrafficLights } from "@evie/ui/components/traffic-lights"
+import { DragRegion, WindowControls } from "~/components/window-controls.tsx"
 import { cn } from "@evie/ui/lib/utils"
 
 /**
@@ -50,7 +50,8 @@ export function ConnectAppsScreen({
 
   return (
     <div className="relative flex h-full flex-col items-center justify-center gap-9 overflow-hidden bg-surface px-10">
-      {desktop && <TrafficLights className="absolute top-5 left-5" />}
+      {desktop && <DragRegion />}
+      {desktop && <WindowControls className="absolute top-5 left-5" />}
 
       <h1 className="text-page-title tracking-section text-fg">What do you use every day?</h1>
 

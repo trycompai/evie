@@ -29,10 +29,10 @@ export function App() {
 
   switch (connection.kind) {
     case "connecting":
-      return <LaunchScreen state="opening" onReopen={reload} onCancel={close} />
+      return <LaunchScreen state="opening" desktop={IS_DESKTOP} onReopen={reload} onCancel={close} />
 
     case "offline":
-      return <LaunchScreen state="failed" onReopen={reload} onCancel={close} />
+      return <LaunchScreen state="failed" desktop={IS_DESKTOP} onReopen={reload} onCancel={close} />
 
     case "outdated":
       return <OutdatedScreen client={connection.client} server={connection.server} />
@@ -44,7 +44,7 @@ export function App() {
        * live claim token, and a browser tab cannot mint one -- only the app or
        * `npx evie` can. So the honest screen is the launch screen saying so.
        */
-      return <LaunchScreen state="expired" onReopen={reload} onCancel={close} />
+      return <LaunchScreen state="expired" desktop={IS_DESKTOP} onReopen={reload} onCancel={close} />
 
     case "ready":
       return <Signed />
@@ -89,7 +89,7 @@ function Signed() {
     }
   }
 
-  if (!session) return <LaunchScreen state="opening" onReopen={reload} onCancel={close} />
+  if (!session) return <LaunchScreen state="opening" desktop={IS_DESKTOP} onReopen={reload} onCancel={close} />
 
   if (onboarding === "meet") {
     return (

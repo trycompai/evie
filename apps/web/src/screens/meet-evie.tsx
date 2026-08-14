@@ -1,7 +1,7 @@
 import { ActionButton } from "@evie/ui/components/action-button"
 import { BotMark } from "@evie/ui/components/bot-mark"
 import { ArrowUpIcon, PlusLargeIcon } from "@evie/ui/components/icon"
-import { TrafficLights } from "@evie/ui/components/traffic-lights"
+import { DragRegion, WindowControls } from "~/components/window-controls.tsx"
 
 /**
  * 03 Onboarding — meet Evie.
@@ -23,11 +23,10 @@ export function MeetEvieScreen({ onNext, onSkip, desktop = false }: MeetEvieScre
   return (
     <div className="relative flex h-full flex-col items-center justify-center gap-12 overflow-hidden bg-surface px-10">
       {desktop && (
-        <TrafficLights
-          className="absolute top-5 left-5"
-          // The whole field is draggable on this screen -- there is no rail yet
-          // to own the top of the window.
-        />
+        <>
+          <DragRegion />
+          <WindowControls className="absolute top-5 left-5" />
+        </>
       )}
 
       <h1 className="text-page-title tracking-section text-fg">Meet Evie</h1>

@@ -143,6 +143,24 @@ if (!app.requestSingleInstanceLock()) {
     ;(app as Quittable).isQuitting = true
   })
 
+  /*
+   * The server must not outlive the shell.
+   *
+   * Electron runs `before-quit` for a menu quit and a Cmd-Q, and nothing at all
+   * for a signal -- so a `kill` of the shell, or a terminal that closes during
+   * development, left a server holding the port and the SQLite file with no
+   * parent to stop it. That is the orphan every "address already in use" on the
+   * next launch traces back to.
+   *
+   * SIGKILL is still unreachable; nothing portable survives it. Everything a
+   * person or a process manager actually sends is covered here.
+   */
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    process.on(signal, () => {
+      void shell.quit()
+    })
+  }
+
   ipcMain.on(CHANNEL.windowClose, () => shell.window.browserWindow?.hide())
   ipcMain.on(CHANNEL.windowMinimize, () => shell.window.browserWindow?.minimize())
   ipcMain.on(CHANNEL.windowZoom, () => {

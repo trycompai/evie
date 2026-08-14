@@ -1,3 +1,4 @@
+import type * as React from "react"
 import { cn } from "@evie/ui/lib/utils"
 
 /**
@@ -10,6 +11,10 @@ import { cn } from "@evie/ui/lib/utils"
  *
  * The three colours are system chrome and stay fixed in both themes. They are
  * the one place in Evie where a colour is not a token.
+ *
+ * `app-region: no-drag` lives here rather than at each call site because a
+ * window control inside a drag region is unclickable, and there is no screen on
+ * which that is the wanted behaviour. In a browser the property is inert.
  */
 
 export interface TrafficLightsProps {
@@ -28,7 +33,10 @@ const LIGHTS = [
 export function TrafficLights({ onClose, onMinimize, onZoom, className }: TrafficLightsProps) {
   const handlers = { close: onClose, minimize: onMinimize, zoom: onZoom }
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div
+      className={cn("flex items-center gap-2", className)}
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+    >
       {LIGHTS.map((light) => (
         <button
           key={light.key}

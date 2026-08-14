@@ -6,8 +6,7 @@ import { markOf } from "@evie/ui/components/bot-mark"
 import { AccountRow, PluginsRailItem, Rail, RailEmpty } from "@evie/ui/components/rail"
 import { SearchField } from "@evie/ui/components/search-field"
 import { ThreadRow } from "@evie/ui/components/thread-row"
-import { TrafficLights } from "@evie/ui/components/traffic-lights"
-import { windowControls } from "~/lib/desktop.ts"
+import { WindowControls } from "~/components/window-controls.tsx"
 import { formatRailTime } from "~/lib/format.ts"
 
 /**
@@ -62,15 +61,7 @@ export function AppRail({
 
   return (
     <Rail
-      windowControls={
-        desktop && windowControls !== null ? (
-          <TrafficLights
-            onClose={windowControls.close}
-            onMinimize={windowControls.minimize}
-            onZoom={windowControls.zoom}
-          />
-        ) : null
-      }
+      windowControls={desktop ? <WindowControls /> : null}
       search={
         <SearchField value={query} onChange={(event) => setQuery(event.target.value)} />
       }
