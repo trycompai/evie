@@ -116,11 +116,42 @@ export function ThreadPane({
 }
 
 /**
- * What the main column shows with no thread selected.
+ * The main column with no conversation in it.
  *
- * Two different empty states, because they are two different problems: an
- * account with bots is one click from work, and an account with none needs to
- * be told what a bot even is.
+ * Four of these now, and they say four different things on purpose. "Pick a
+ * conversation" in front of someone who followed a link to a deleted thread is
+ * not an empty state, it is the app pretending nothing happened -- and it
+ * leaves a dead id in the address bar with no way to clear it.
+ */
+function Pane({
+  title,
+  body,
+  action,
+}: {
+  readonly title: string
+  readonly body: string
+  readonly action?: { readonly label: string; readonly onSelect: () => void }
+}) {
+  return (
+    <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 px-8">
+      <p className="text-lede text-fg">{title}</p>
+      <p className="max-w-[420px] text-center text-compact text-fg-muted">{body}</p>
+      {action && (
+        <button
+          type="button"
+          onClick={action.onSelect}
+          className="rounded-pill bg-fg px-5 py-2.5 text-ui font-medium text-surface hover:opacity-90"
+        >
+          {action.label}
+        </button>
+      )}
+    </main>
+  )
+}
+
+/**
+ * No thread selected. Two problems, not one: an account with bots is one click
+ * from work, and an account with none needs to be told what a bot even is.
  */
 export function EmptyPane({
   hasBots,
@@ -129,23 +160,46 @@ export function EmptyPane({
   readonly hasBots: boolean
   readonly onNewBot: () => void
 }) {
+  return hasBots ? (
+    <Pane
+      title="Pick a conversation"
+      body="Everything your bots have been doing is in the rail."
+    />
+  ) : (
+    <Pane
+      title="Create your first bot"
+      body="A bot is a role you set up once and keep talking to. It gets its own computer, and it keeps working after you close the laptop."
+      action={{ label: "New bot", onSelect: onNewBot }}
+    />
+  )
+}
+
+/**
+ * The environment says this conversation is not one of yours -- deleted, or
+ * never here. The way out is the point: the URL still names it, and without a
+ * button the only fix is editing the address bar.
+ */
+export function MissingThreadPane({ onLeave }: { readonly onLeave: () => void }) {
   return (
-    <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 px-8">
-      <p className="text-lede text-fg">{hasBots ? "Pick a conversation" : "Create your first bot"}</p>
-      <p className="max-w-[420px] text-center text-compact text-fg-muted">
-        {hasBots
-          ? "Everything your bots have been doing is in the rail."
-          : "A bot is a role you set up once and keep talking to. It gets its own computer, and it keeps working after you close the laptop."}
-      </p>
-      {!hasBots && (
-        <button
-          type="button"
-          onClick={onNewBot}
-          className="rounded-pill bg-fg px-5 py-2.5 text-ui font-medium text-surface hover:opacity-90"
-        >
-          New bot
-        </button>
-      )}
-    </main>
+    <Pane
+      title="That conversation is gone"
+      body="It was deleted, or it belongs to a different environment. Everything else is still in the rail."
+      action={{ label: "Back to your conversations", onSelect: onLeave }}
+    />
+  )
+}
+
+/**
+ * The conversation exists, but this client does not have its record: the rail
+ * carries the hundred most recent active threads, and archived and snoozed ones
+ * are not among them. Says that, rather than claiming it is gone.
+ */
+export function UnlistedThreadPane({ onLeave }: { readonly onLeave: () => void }) {
+  return (
+    <Pane
+      title="This conversation isn't in your recent list"
+      body="The rail holds what you have touched lately. Archived and snoozed conversations, and anything older, are not loaded here yet."
+      action={{ label: "Back to your conversations", onSelect: onLeave }}
+    />
   )
 }

@@ -1,8 +1,9 @@
 # Getting started
 
 > **Evie is not shipped yet.** This page describes what you can run from the
-> repository today, which is a server and a web client. There is no installer
-> and no desktop app. Where the product is going is in [`specs/`](../../specs);
+> repository today: a server, a web client, and a desktop app you build
+> yourself. There is no installer. Where the product is going is in
+> [`specs/`](../../specs);
 > where it actually is, in detail, is in
 > [`specs/07-state-of-the-build.md`](../../specs/07-state-of-the-build.md).
 >
@@ -13,7 +14,25 @@
 Evie runs on your machine. Your bots live on your disk, they run against your
 API key, and nothing is uploaded in order to work.
 
-## Run it
+## Run the desktop app
+
+The desktop app is the main surface. It starts its own server, opens a window
+onto it, and lives in the menu bar. You need Bun; it brings its own Node.
+
+```sh
+bun i
+turbo run build --filter=@evie/desktop
+cd apps/desktop && bunx electron .
+```
+
+Closing the window does not stop Evie — that is the point of a local agent app.
+Your bots keep working, and the menu bar icon is where you find it again.
+**Quit Evie** in that menu is the only thing that stops the server.
+
+While you are running it from a checkout it keeps its data in the repository's
+own `.evie` directory, not in `~/.evie`, so it cannot touch a real install.
+
+## Run just the server and a browser
 
 You need Node 24 or newer and Bun. From the repository root:
 
@@ -84,11 +103,32 @@ Before a bot does something consequential it asks, right there in the
 conversation rather than in a dialog that steals your place. You can approve or
 say no. Saying no is not an error; the bot carries on.
 
+## Reloading keeps your place
+
+Where you are is in the address bar — a conversation is `/chat/<id>`. Refresh
+the page and you come back to it, not to the welcome screen. Close the desktop
+window and reopen it from the tray and it is still there; the window hides
+rather than throws the page away.
+
+Open Evie with nothing in particular in mind — a fresh tab, or the app after a
+quit — and it opens the conversation you touched last, rather than an empty
+column asking you to pick one.
+
+That also makes a conversation a link. Copy the URL out of a browser tab and it
+opens the same thread the next time — on the same environment, signed in as
+you. It is not a share link: someone else's browser gets the sign-in screen. A
+link to a conversation that has since been deleted says so, and gives you a way
+back, instead of quietly showing you nothing.
+
+One thing it deliberately does not keep: a message you had half typed is gone on
+reload, the same as any other form on the web.
+
 ## What is not there yet
 
 So you do not go looking:
 
-- **No desktop app**, no tray, no notifications, no deep links.
+- **No installer, no signing, no auto-update**, and the desktop app is macOS
+  only for now. You build it from the repository.
 - **No settings** — no model picker, no key entry, no sandbox controls.
 - **No routines, connections, or plugins.** The Plugins window opens and is
   empty; connecting a service does not yet reach the agent.

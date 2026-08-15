@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url"
 import tailwindcss from "@tailwindcss/vite"
 import react, { reactCompilerPreset } from "@vitejs/plugin-react"
 import babel from "@rolldown/plugin-babel"
+import { tanstackRouter } from "@tanstack/router-plugin/vite"
 import { defineConfig } from "vite"
 
 /** Where `@evie/server` is listening in dev. Overridable; 3001 is the default. */
@@ -14,6 +15,15 @@ const apiOrigin = `http://127.0.0.1:${process.env.EVIE_PORT ?? 3001}`
  */
 export default defineConfig({
   plugins: [
+    /*
+     * First, and it has to be: the generator writes `src/routeTree.gen.ts` from
+     * `src/routes/`, and everything after it in this list compiles the result.
+     * Put it after `react()` and a cold start compiles last run's tree.
+     *
+     * `routeTree.gen.ts` is generated but committed, so a `tsc -b` or an eslint
+     * run that never starts Vite still has a tree to look at.
+     */
+    tanstackRouter({ target: "react" }),
     react(),
     // The React Compiler memoizes for us. It is doing real work in the
     // timeline: without it every row callback is a fresh closure and

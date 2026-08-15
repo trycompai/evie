@@ -34,9 +34,19 @@ const notify = (set: Set<Listener> | undefined) => {
 export interface FleetSnapshot {
 	readonly bots: readonly Bot[];
 	readonly threads: readonly Thread[];
+	/**
+	 * Whether the fleet stream has delivered a frame.
+	 *
+	 * "No bots" and "no answer yet" are the same empty array and mean opposite
+	 * things: the first is a new account that should see onboarding, the second
+	 * is every account for the first few milliseconds after a reload. A client
+	 * that cannot tell them apart shows onboarding to everyone and then takes it
+	 * away again.
+	 */
+	readonly loaded: boolean;
 }
 
-const EMPTY_FLEET: FleetSnapshot = { bots: [], threads: [] };
+const EMPTY_FLEET: FleetSnapshot = { bots: [], threads: [], loaded: false };
 
 export class EvieStore {
 	/** Exposed so command senders and presence can share the one connection. */
@@ -97,6 +107,30 @@ export class EvieStore {
 
 	getFleet = (): FleetSnapshot => this.#fleet;
 
+	/**
+	 * The fleet, once the server has actually answered.
+	 *
+	 * Resolves synchronously-ish when a frame has already landed, and on the
+	 * first frame otherwise. This exists so a route can *await* the fleet in
+	 * `beforeLoad` instead of a component rendering a guess and correcting it:
+	 * "which screen does a new window open on" is unanswerable until the bots
+	 * are known, and answering it early is how an account with a dozen bots got
+	 * shown the welcome screen. See `FleetSnapshot.loaded`.
+	 *
+	 * Never rejects. A fleet that never arrives leaves this pending, which is
+	 * the honest outcome -- the connection layer owns surfacing that.
+	 */
+	whenFleetLoaded = (): Promise<FleetSnapshot> => {
+		if (this.#fleet.loaded) return Promise.resolve(this.#fleet);
+		return new Promise((resolve) => {
+			const stop = this.subscribeFleet(() => {
+				if (!this.#fleet.loaded) return;
+				stop();
+				resolve(this.#fleet);
+			});
+		});
+	};
+
 	/** Starts the one fleet-level stream. Idempotent; safe to call after a reconnect. */
 	watchFleet(): void {
 		if (this.#subscriptions.has("@fleet")) return;
@@ -110,6 +144,7 @@ export class EvieStore {
 						frame.threads,
 						frame.removedThreads,
 					),
+					loaded: true,
 				};
 				notify(this.#fleetListeners);
 			},

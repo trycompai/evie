@@ -144,8 +144,9 @@ Everything in this workspace is scoped `@evie/*`.
 - `specs/` - the design, settled before it is built. Read `specs/README.md` first.
 - `docs/` - what exists, split by audience. See `docs/README.md`.
 
-Not built yet, so check before assuming a path is there: `apps/desktop` (Electron shell, bundles the
-server). Its design is settled in `specs/07-state-of-the-build.md`.
+- `apps/desktop` - `@evie/desktop`. The Electron shell: tray-resident, owns the server as a child
+  process, bundles it and the web client with esbuild. macOS only so far, no installer. From that
+  directory, `bun run build && bunx electron .`. See `specs/07-state-of-the-build.md`.
 
 **Every `@evie/*` package is just-in-time**: it exports raw `.ts`/`.tsx` and emits nothing. Two
 consequences neither of which is discoverable from a stack trace — an app that imports one must list

@@ -10,7 +10,7 @@ import {
 } from "@evie/contracts/errors"
 import type { EvieEvent } from "@evie/contracts/events"
 import { EventId } from "@evie/contracts/ids"
-import type { FileNode, Receipt } from "@evie/contracts/rpc"
+import type { FileNode, FleetFrame, Receipt } from "@evie/contracts/rpc"
 import { Thread } from "@evie/contracts/thread"
 import { TimelineItem } from "@evie/contracts/timeline"
 import { CONTRACT_VERSION } from "@evie/contracts/version"
@@ -330,6 +330,121 @@ export const HandlersLive = EvieRpcAuthed.toLayer(
 
     /* --- the handlers ------------------------------------------------------ */
 
+    /*
+     * How many threads the opening snapshot carries. The rail is a recency
+     * list, not an archive: past this, the user is scrolling, and `threads.list`
+     * pages from there.
+     */
+    const FLEET_SNAPSHOT_THREADS = 100
+
+    /* --- shared reads ------------------------------------------------------
+     *
+     * `bots.list` / `threads.list` and the snapshot that opens
+     * `fleet.subscribe` read the same rows, so they read them through the same
+     * function. Two copies of a query that must agree is how a rail ends up
+     * showing something the list does not. */
+
+    const listBots = Effect.fn("handlers.listBots")(function* (
+      orgId: string,
+      includeArchived: boolean,
+    ) {
+      const rows = yield* orStorage(sql<BotRow>`
+        select * from bot
+        where org_id = ${orgId}
+          and (${includeArchived ? sql`1 = 1` : sql`archived_at is null`})
+        order by created_at asc`)
+      return rows.flatMap(botOf)
+    })
+
+    /** Shared with the snapshot that opens `fleet.subscribe`. */
+    const listThreads = Effect.fn("handlers.listThreads")(function* (
+      orgId: string,
+      filter: "active" | "archived" | "snoozed",
+      before: number,
+      limit: number,
+    ) {
+        const now = Date.now()
+        const filterClause =
+          filter === "archived"
+            ? sql`archived_at is not null`
+            : filter === "snoozed"
+              ? sql`archived_at is null and snoozed_until is not null and snoozed_until > ${now}`
+              : sql`archived_at is null and (snoozed_until is null or snoozed_until <= ${now})`
+
+        interface ThreadRow {
+          readonly id: string
+          readonly org_id: string
+          readonly title: string | null
+          readonly created_by: string
+          readonly created_at: number | bigint
+          readonly last_activity: number | bigint
+          readonly snoozed_until: number | bigint | null
+          readonly archived_at: number | bigint | null
+          readonly last_body: string | null
+        }
+        const rows = yield* orStorage(sql<ThreadRow>`
+          select t.*, (
+            select body from timeline_item i
+            where i.thread_id = t.id order by i.seq desc limit 1
+          ) as last_body
+          from thread t
+          where t.org_id = ${orgId} and t.last_activity < ${before} and (${filterClause})
+          order by t.last_activity desc limit ${limit}`)
+
+        interface ParticipantRow {
+          readonly thread_id: string
+          readonly bot_id: string
+          readonly eve_session_id: string | null
+          readonly stream_index: number | bigint
+          readonly is_default: number | bigint
+        }
+        const participantRows =
+          rows.length === 0
+            ? []
+            : yield* orStorage(sql<ParticipantRow>`
+                select * from thread_participant
+                where ${sql.in("thread_id", rows.map((row) => row.id))}`)
+        const participantsByThread = new Map<string, Array<ParticipantRow>>()
+        for (const row of participantRows) {
+          const list = participantsByThread.get(row.thread_id) ?? []
+          list.push(row)
+          participantsByThread.set(row.thread_id, list)
+        }
+
+        const items = rows.flatMap((row): ReadonlyArray<Thread> => {
+          try {
+            return [
+              decodeThread({
+                id: row.id,
+                orgId: row.org_id,
+                title: row.title,
+                participants: (participantsByThread.get(row.id) ?? []).map((participant) => ({
+                  botId: participant.bot_id,
+                  eveSessionId: participant.eve_session_id,
+                  streamIndex: Number(participant.stream_index),
+                  isDefault: Number(participant.is_default) === 1,
+                })),
+                status: hub.statusOf(row.id),
+                preview: previewOf(row.last_body),
+                createdBy: row.created_by,
+                createdAt: Number(row.created_at),
+                lastActivity: Number(row.last_activity),
+                snoozedUntil: row.snoozed_until === null ? null : Number(row.snoozed_until),
+                archivedAt: row.archived_at === null ? null : Number(row.archived_at),
+              }),
+            ]
+          } catch {
+            return []
+          }
+        })
+
+        const lastRow = rows[rows.length - 1]
+        return {
+          items,
+          nextBefore: rows.length === limit && lastRow !== undefined ? Number(lastRow.last_activity) : null,
+        }
+    })
+
     return {
       "session.hello": (_payload, options) =>
         Effect.gen(function* () {
@@ -372,100 +487,18 @@ export const HandlersLive = EvieRpcAuthed.toLayer(
       "bots.list": (payload) =>
         Effect.gen(function* () {
           const conn = yield* ConnectionState
-          const rows = yield* orStorage(sql<BotRow>`
-            select * from bot
-            where org_id = ${conn.actor.orgId}
-              and (${payload.includeArchived === true ? sql`1 = 1` : sql`archived_at is null`})
-            order by created_at asc`)
-          return rows.flatMap(botOf)
+          return yield* listBots(conn.actor.orgId, payload.includeArchived === true)
         }),
 
       "threads.list": (payload) =>
         Effect.gen(function* () {
           const conn = yield* ConnectionState
-          const filter = payload.filter ?? "active"
-          const before = payload.before ?? Number.MAX_SAFE_INTEGER
-          const limit = Math.min(Math.max(payload.limit ?? 50, 1), 200)
-          const now = Date.now()
-          const filterClause =
-            filter === "archived"
-              ? sql`archived_at is not null`
-              : filter === "snoozed"
-                ? sql`archived_at is null and snoozed_until is not null and snoozed_until > ${now}`
-                : sql`archived_at is null and (snoozed_until is null or snoozed_until <= ${now})`
-
-          interface ThreadRow {
-            readonly id: string
-            readonly org_id: string
-            readonly title: string | null
-            readonly created_by: string
-            readonly created_at: number | bigint
-            readonly last_activity: number | bigint
-            readonly snoozed_until: number | bigint | null
-            readonly archived_at: number | bigint | null
-            readonly last_body: string | null
-          }
-          const rows = yield* orStorage(sql<ThreadRow>`
-            select t.*, (
-              select body from timeline_item i
-              where i.thread_id = t.id order by i.seq desc limit 1
-            ) as last_body
-            from thread t
-            where t.org_id = ${conn.actor.orgId} and t.last_activity < ${before} and (${filterClause})
-            order by t.last_activity desc limit ${limit}`)
-
-          interface ParticipantRow {
-            readonly thread_id: string
-            readonly bot_id: string
-            readonly eve_session_id: string | null
-            readonly stream_index: number | bigint
-            readonly is_default: number | bigint
-          }
-          const participantRows =
-            rows.length === 0
-              ? []
-              : yield* orStorage(sql<ParticipantRow>`
-                  select * from thread_participant
-                  where ${sql.in("thread_id", rows.map((row) => row.id))}`)
-          const participantsByThread = new Map<string, Array<ParticipantRow>>()
-          for (const row of participantRows) {
-            const list = participantsByThread.get(row.thread_id) ?? []
-            list.push(row)
-            participantsByThread.set(row.thread_id, list)
-          }
-
-          const items = rows.flatMap((row): ReadonlyArray<Thread> => {
-            try {
-              return [
-                decodeThread({
-                  id: row.id,
-                  orgId: row.org_id,
-                  title: row.title,
-                  participants: (participantsByThread.get(row.id) ?? []).map((participant) => ({
-                    botId: participant.bot_id,
-                    eveSessionId: participant.eve_session_id,
-                    streamIndex: Number(participant.stream_index),
-                    isDefault: Number(participant.is_default) === 1,
-                  })),
-                  status: hub.statusOf(row.id),
-                  preview: previewOf(row.last_body),
-                  createdBy: row.created_by,
-                  createdAt: Number(row.created_at),
-                  lastActivity: Number(row.last_activity),
-                  snoozedUntil: row.snoozed_until === null ? null : Number(row.snoozed_until),
-                  archivedAt: row.archived_at === null ? null : Number(row.archived_at),
-                }),
-              ]
-            } catch {
-              return []
-            }
-          })
-
-          const lastRow = rows[rows.length - 1]
-          return {
-            items,
-            nextBefore: rows.length === limit && lastRow !== undefined ? Number(lastRow.last_activity) : null,
-          }
+          return yield* listThreads(
+            conn.actor.orgId,
+            payload.filter ?? "active",
+            payload.before ?? Number.MAX_SAFE_INTEGER,
+            Math.min(Math.max(payload.limit ?? 50, 1), 200),
+          )
         }),
 
       "threads.timeline": (payload) =>
@@ -598,8 +631,38 @@ export const HandlersLive = EvieRpcAuthed.toLayer(
           }),
         ),
 
+      /*
+       * A snapshot, then the live deltas -- the same shape `subscribeThread`
+       * already has, and for the same reason.
+       *
+       * The hub is a pub/sub with no database behind it, so a subscriber that
+       * joins a quiet org used to receive nothing at all: on every cold start
+       * the rail was empty until something happened to change, and the client
+       * could not tell "no bots" from "not told yet". It showed an existing
+       * user the welcome screen. The client now waits for this first frame
+       * before it paints, which makes sending one non-negotiable.
+       *
+       * Ordering matters: the subscription is opened *before* the snapshot is
+       * read, so an event landing between the two is queued rather than lost.
+       * It arrives as a delta over rows the snapshot already carried, which is
+       * idempotent -- the client merges by id.
+       */
       "fleet.subscribe": () =>
-        Stream.unwrap(Effect.map(ConnectionState, (conn) => hub.subscribeFleet(conn.actor.orgId))),
+        Stream.unwrap(
+          Effect.gen(function* () {
+            const conn = yield* ConnectionState
+            const live = hub.subscribeFleet(conn.actor.orgId)
+            const bots = yield* listBots(conn.actor.orgId, false)
+            const threads = yield* listThreads(
+              conn.actor.orgId,
+              "active",
+              Number.MAX_SAFE_INTEGER,
+              FLEET_SNAPSHOT_THREADS,
+            )
+            const snapshot: FleetFrame = { bots, threads: threads.items }
+            return Stream.concat(Stream.succeed(snapshot), live)
+          }),
+        ),
 
       "reasoning.watch": (payload) =>
         Effect.gen(function* () {

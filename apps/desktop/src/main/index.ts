@@ -157,12 +157,28 @@ if (!app.requestSingleInstanceLock()) {
    */
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
     process.on(signal, () => {
-      void shell.quit()
+      // Synchronous, before anything is awaited -- see `EvieServer.stopNow`.
+      shell.server.stopNow()
+      ;(app as Quittable).isQuitting = true
+      app.quit()
     })
   }
 
   ipcMain.on(CHANNEL.windowClose, () => shell.window.browserWindow?.hide())
   ipcMain.on(CHANNEL.windowMinimize, () => shell.window.browserWindow?.minimize())
+  ipcMain.on(CHANNEL.windowButtonPosition, (_event, position: { x: number; y: number } | null) => {
+    const window = shell.window.browserWindow
+    if (window === null || window.isDestroyed() || process.platform !== "darwin") return
+    // Guard the cast: this arrives from the renderer, which serves content the
+    // agent produced. A bad payload here throws inside Electron's native layer.
+    if (position === null) {
+      window.setWindowButtonPosition(null)
+      return
+    }
+    if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return
+    window.setWindowButtonPosition({ x: Math.round(position.x), y: Math.round(position.y) })
+  })
+
   ipcMain.on(CHANNEL.windowZoom, () => {
     const window = shell.window.browserWindow
     if (window === null || window.isDestroyed()) return
@@ -171,7 +187,6 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(async () => {
-    process.env["EVIE_SHELL_VERSION"] = app.getVersion()
     shell.tray.create()
     try {
       const handle = await shell.server.start()

@@ -12,12 +12,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@evie/shared": "workspace:*",
     "@evie/client-runtime": "workspace:*",
     "@evie/contracts": "workspace:*",
+    "@evie/shared": "workspace:*",
     "@evie/ui": "workspace:*",
+    "@tanstack/react-router": "^1.170.29",
     "better-auth": "^1.6.29",
     "effect": "4.0.0-rc.109",
+    "nuqs": "^2.9.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -25,6 +27,8 @@
     "@evie/eslint-config": "workspace:*",
     "@evie/typescript-config": "workspace:*",
     "@rolldown/plugin-babel": "^0.2.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/router-plugin": "^1.168.32",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -34,7 +38,6 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "tailwindcss": "^4.3.3",
-    "@tailwindcss/vite": "^4.3.3",
     "typescript": "5.9.2",
     "vite": "^8.2.0",
     "vitest": "^3.2.4"

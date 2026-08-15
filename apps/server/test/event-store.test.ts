@@ -61,6 +61,8 @@ const botCreated = (botId: BotId, name: string): EvieEvent =>
     name,
     teamId: null,
     model: "anthropic/claude-opus-4.8",
+    avatar: null,
+    reasoning: null,
   }) as EvieEvent
 
 describe("EventStore.append", () => {

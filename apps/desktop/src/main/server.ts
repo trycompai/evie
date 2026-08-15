@@ -98,6 +98,26 @@ export class EvieServer {
   }
 
   /**
+   * Signals the child and returns immediately, for use from a signal handler.
+   *
+   * `stop()` awaits the child's exit, and awaiting anything inside a SIGTERM
+   * handler is a race the shell loses: the process can be torn down before the
+   * first `await` resumes, and the server is left orphaned holding the port --
+   * which is exactly what happened before this existed. Signalling first and
+   * asking questions later is the only ordering that survives.
+   */
+  stopNow(): void {
+    this.#stopping = true
+    const pid = this.#pid
+    if (pid === null) return
+    try {
+      process.kill(pid, "SIGTERM")
+    } catch {
+      /* already gone */
+    }
+  }
+
+  /**
    * SIGTERM, then SIGKILL if it is still there. Signals `#pid`, captured at
    * spawn -- never a pid found by name. Safe to call twice.
    */
@@ -151,6 +171,10 @@ export class EvieServer {
           ...(home.live ? { EVIE_ALLOW_LIVE_HOME: "1" } : {}),
           EVIE_WEB_DIST: webDist,
           EVIE_LAUNCHER_TOKEN: this.launcherToken,
+          // The backstop for the one case no handler here can cover: if this
+          // shell is SIGKILLed, the server notices its parent is gone and
+          // exits itself rather than holding the port forever.
+          EVIE_PARENT_PID: String(process.pid),
           // Turns `Notifier.layerNoop` into a real transport: the reactor
           // decides when to notify, the shell only delivers.
           EVIE_NOTIFY_STDOUT: "1",

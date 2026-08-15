@@ -104,42 +104,75 @@ cross into the eve project. Only the network allow-list rides through, via
 
 ## The desktop app
 
-`apps/desktop` does not exist. `AGENTS.md` calls desktop "the main surface most
-users install first", and several seams are already cut for it — the web app is
-written to be wrapped:
+**Built.** `apps/desktop` is a tray-resident macOS shell, verified end to end
+against a real server: window controls, deep links, close-to-tray, and the
+guarantee that the server never outlives it.
 
-| Seam | Where | What the shell must do |
+### How it is put together
+
+| Piece | File | Notes |
 | --- | --- | --- |
-| `IS_DESKTOP` | `apps/web/src/app.tsx:26` — tests `"evie" in globalThis` | Preload exposes `window.evie`. Nothing else switches on platform, so every `desktop` branch is dead code today. |
-| Drag regions | `rail.tsx`, `thread-header.tsx` — `WebkitAppRegion: drag` | `titleBarStyle: "hidden"`, so the rail owns the top of the window as the design draws it. |
-| `TrafficLights` | `traffic-lights.tsx` | Takes `onClose`/`onMinimize`/`onZoom`. **Rendered with no handlers** (`app-rail.tsx:64`) — the buttons are inert. Wiring them is part of this work. |
-| `Notifier` | `reactors/notify.ts` | A real transport. `layer.ts:95` wires `layerNoop`, so `deliver` always returns false and **no `NotificationDelivered` receipt is ever appended**. |
-| Secrets keychain | `secrets/Secrets.ts:69` | Swap the file read for macOS Keychain / Windows Credential Manager; Linux keeps `secrets.key` at 0600. |
-| Static serving | `EVIE_WEB_DIST` in `gateway/http.ts` | Already works — this is how the app is served today. |
+| Shell entry | `src/main/index.ts` | Single-instance lock, `evie://` registration, IPC, signal handling. |
+| Server child | `src/main/server.ts` | Spawn, ready-line parsing, restart backoff, PID-tracked shutdown. |
+| Window | `src/main/window.ts` | `titleBarStyle: "hidden"`, native window buttons repositioned to the design's coordinates. |
+| Tray | `src/main/tray.ts` | Status line, Open, Restart Server, Quit. The only way to quit. |
+| Notifications | `src/main/notifications.ts` | Delivery only; the reactor still decides when. |
+| Preload | `src/preload/index.ts` | Exposes exactly `@evie/shared/desktop-bridge`. |
+| Bridge contract | `packages/shared/src/desktop-bridge.ts` | One definition, shared with `apps/web`. Nothing Electron in it. |
+| Build | `scripts/build.mjs`, `scripts/icons.mjs` | esbuild x3 + a generated template icon. |
 
-**Design, settled before it is built:**
+### Decisions that changed once it was real
 
-1. **The shell owns the server as a child process, not in-process.** Electron's
-   main process is a poor host for a server that must outlive a window, and a
-   crash in one should not take the other down. Capture the PID at spawn and
-   kill by that PID on quit — `AGENTS.md` rule 1 applies to the shipped product
-   exactly as it applies to development.
-2. **Tray-resident.** Closing the window stops nothing; quit from the tray stops
-   the server. That is the "works after you close your device" promise, and on
-   desktop it is deliverable without a cloud.
-3. **The window opens on the claim URL.** The server prints
-   `http://127.0.0.1:<port>/?claim=<token>` on boot (`layer.ts:127-136`). Read it
-   from the child's stdout and load it. Do not invent a second auth path.
-4. **Notifications are the server's, delivered over IPC.** `NotifyReactor`
-   already decides *when*, is snooze-aware, and refuses to fire for events older
-   than its own start time. The shell supplies delivery only.
-5. **Deep links.** Register `evie://`; `evie://thread/<id>` becomes a message
-   into the renderer, not a URL — the web app has no router by design.
-6. **Auto-update ships the server and the UI together.** `session.hello` already
-   refuses a `CONTRACT_VERSION` mismatch, which is what makes that safe.
+1. **Electron hosts the server with its own binary.** Electron 40 embeds Node
+   24 *with `node:sqlite`*, which is the server's one hard runtime requirement.
+   `ELECTRON_RUN_AS_NODE=1` on `process.execPath` means the packaged app needs
+   no system Node and ships no second runtime. The spec had assumed a bundled
+   Node binary; this is strictly better.
+2. **The server bundle is fully self-contained.** Bun installs each workspace in
+   isolation, so `apps/server`'s dependencies do not resolve from
+   `apps/desktop/out/`. Externals were not an option; the 5.9 MB bundle is.
+3. **A launcher endpoint replaced "reopen means restart".** `POST
+   /internal/launcher/claim` (loopback-only, bearer `EVIE_LAUNCHER_TOKEN`, local
+   mode only, mounted only when all three hold) mints a fresh session on demand.
+   Without it, a window that outlived its cookie could only be recovered by
+   killing the server and every agent under it.
+4. **The server watches its launcher.** `EVIE_PARENT_PID` +
+   `apps/server/src/parent-watchdog.ts`. Signal handlers cover a kill; nothing
+   covers SIGKILL, and an orphaned server holding the port is how the *next*
+   launch fails. It watches for reparenting, not for pid liveness, because pids
+   are recycled.
 
-Out of scope for v1: signing and notarisation, Windows and Linux, auto-update
-itself. Get a tray app running on macOS first.
+### Bugs this work found and fixed
+
+- **The traffic lights never worked, on any screen.** Three of four render sites
+  passed no handlers at all; the fourth passed the contextBridge functions
+  *directly* to `onClick`, so React called them with a SyntheticEvent, which
+  cannot be structured-cloned across the isolation boundary — it threw at the
+  boundary and the button did nothing.
+- **And then drawn controls turned out to be the wrong answer entirely.** Even
+  wired up they felt inert, because everything that makes these buttons read as
+  macOS is behaviour the system owns: dimming when the window is not frontmost,
+  revealing ⨯ − + on hover over the group, green meaning full-screen (and
+  Option-green meaning fit), and repainting for Reduce Transparency and
+  Differentiate Without Color. The shell now shows the **native** buttons and
+  the renderer measures where the design puts them and moves them there
+  (`window-controls.tsx` → `setButtonPosition` → `setWindowButtonPosition`).
+  The drawn component survives for the gallery, which has no window to borrow.
+- **`App` never passed `desktop` to `LaunchScreen`**, so the connecting and
+  expired screens had no window controls whatsoever.
+- **Screens without a rail could not be dragged.** With the titlebar hidden,
+  nothing owned the top of the window on the launch and onboarding screens.
+- **`fleet.subscribe` sent no initial snapshot.** The hub is pub/sub with no
+  database behind it, so a client joining a quiet org received nothing, and the
+  client could not tell "no bots" from "not told yet". It now backfills, exactly
+  as `subscribeThread` already did.
+
+### Still out of scope
+
+Signing and notarisation, Windows and Linux, auto-update, and the keychain swap
+for `Secrets`. `electron-builder` is not wired up: `bun run build` produces a
+runnable app, not an installer.
+
 
 ## Complete subsystems connected to nothing
 
@@ -148,11 +181,11 @@ caller reaches:
 
 | Thing | Reality |
 | --- | --- |
-| `Notifier` | Reactor logic complete. Transport is `layerNoop`. Nothing is ever delivered. |
+| `Notifier` | **Transport built.** `Notifier.layerStdout`, selected by `EVIE_NOTIFY_STDOUT`, writes one line per notification for the desktop shell to deliver natively. A headless boot still gets `layerNoop`. |
 | `ClientPresence` | `layerNone`: `isAttached` always false, so a runtime idle-stops after 10 minutes even with a client watching. `presence.set` writes an open-thread set that nothing reads. |
 | Plugins catalogue | `plugins.catalog` returns `listings: []` **on the server** and the app passes `listings={[]}` anyway. `ConnectService` writes a DB row and **never writes `agent/connections/<name>.ts`**, so a "connected" service has no effect on the agent. |
 | Blobs | `blob`/`blob_ref` tables, `blobs.grant`, and `GET /blob/:id` with the org check are all built — and **nothing ever inserts a blob**. There is no upload path, so no grant can succeed. Tool truncation sets `truncated: true` with no `blobId`, so a truncated payload can never be expanded. `SendMessage.attachments` are dropped at dispatch anyway. |
-| `SetInstructions` | Validates, emits a **content-free** `InstructionsChanged`, and no reactor consumes it. Scaffold never rewrites `instructions.md` after creation. The text is dropped on the floor. |
+| `SetInstructions` | The event now carries the text, so the information survives — but still no reactor consumes it and the scaffold never rewrites `instructions.md`. Half fixed. |
 | Routines | Backend is complete and careful — tz-aware cron, `next_run_at` recomputed from `(cron, tz)` at boot, blocked-once semantics, run-as-left backstop. Zero UI. |
 | Member-scoped connections | Schema, commands, grant secrets, and `principalType: "user"` JWTs all built. Grant tokens are never injected into a runtime. |
 | `computer.list` | Real server implementation; no client caller. It also reads the **host filesystem** under the bot's project dir, which is fine in dev mode and wrong the day a real sandbox lands. |
@@ -168,13 +201,13 @@ Distinct from "not built yet" — these are wrong, not absent:
 | Bug | Where |
 | --- | --- |
 | **`@evie/contracts` exports `./eve` pointing at a file that does not exist.** Any import of it fails to resolve. | `packages/contracts/package.json` |
-| **The bot's chosen face is discarded.** `CreateBotInput.avatar` exists; `BotCreated` does not carry it, so the projection always stores `avatar: null` and every bot falls back to a hash of its id. The new-bot picker's entire purpose is lost. | `decide.ts:132-145` |
+| ~~**The bot's chosen face is discarded.**~~ **Fixed.** `BotCreated` now carries `avatar` and `reasoning`, the decider passes them through, and the projection stores them. | `contracts/events.ts`, `decide.ts`, `project.ts` |
 | **"Always for this session" approvals never reach eve.** `AnswerInput.scope` survives into the event and is then dropped when building the response. | `bridges.ts:110-125` |
 | **`reconnecting` is never emitted.** The status exists, the rail renders it, and no server code produces it — so the specified "UI shows *reconnecting*, not an error" does not happen. | `contracts/thread.ts` vs server |
 | **`CredentialProblem` is never constructed.** Defined and round-trip-tested; no code path raises it, so the specified "typed error and a *Fix in Settings* action" cannot occur. | `contracts/errors.ts` |
-| **Connect-apps selections are discarded.** The onboarding picks land in a `Set` that is dropped on "done"; no `ConnectService` is sent. | `app.tsx:72` |
-| **`vite.config.ts` contradicts `README.md`** about whether the Vite WS proxy works. Both are in the repo; the README is right. | `apps/web/vite.config.ts:52-58` |
-| **`docs/user/getting-started.md` describes a product that does not exist** — desktop app, Settings → Models, device pairing, remote access. | `docs/user/` |
+| **Connect-apps selections are discarded.** The onboarding picks are held in the URL now, but still no `ConnectService` is ever sent. | `app.tsx` |
+| **`vite.config.ts` contradicts `README.md`** about whether the Vite WS proxy works. Both are in the repo; the README is right. Moot for desktop, which serves the built dist from the server. | `apps/web/vite.config.ts` |
+| **`docs/user/getting-started.md` still has gaps** — Settings → Models, device pairing, and remote access do not exist. The desktop app now does. | `docs/user/` |
 
 ## The quality gate is thinner than it looks
 

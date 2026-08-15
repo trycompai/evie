@@ -55,6 +55,8 @@ function mkBotCreated(over: { slug?: string; name?: string } = {}): EvieEvent {
     name: over.name ?? "Ops",
     teamId: null,
     model: "anthropic/claude-opus-4.8",
+    avatar: null,
+    reasoning: null,
   } as EvieEvent
 }
 

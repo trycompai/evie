@@ -5,6 +5,7 @@ import { GatewayAuthLive } from "./auth/gateway-auth.ts"
 import { EvieConfig } from "./config.ts"
 import { Db } from "./db/Db.ts"
 import { MigrationsLive } from "./db/migrations.ts"
+import { ParentWatchdogLive } from "./parent-watchdog.ts"
 import { GatewayLive } from "./gateway/Gateway.ts"
 import { Hub } from "./gateway/hub.ts"
 import { DeltaPumpLive } from "./gateway/pump.ts"
@@ -135,4 +136,4 @@ const LocalClaimLive = Layer.effectDiscard(
   }),
 ).pipe(Layer.provide([ConfigLive, AuthLive]), Layer.provide(GatewayReady))
 
-export const AppLive = Layer.mergeAll(GatewayReady, PumpLive, LocalClaimLive)
+export const AppLive = Layer.mergeAll(GatewayReady, PumpLive, LocalClaimLive, ParentWatchdogLive)

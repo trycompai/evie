@@ -22,13 +22,32 @@ const subscribe = <T>(channel: string, handler: (value: T) => void): (() => void
   }
 }
 
+/**
+ * The shell's version, handed over as a launch argument.
+ *
+ * Not `process.env`: a sandboxed preload gets a stripped `process`, and reading
+ * the environment there is the kind of thing that works in development and
+ * returns undefined in a packaged build. `additionalArguments` is the channel
+ * Electron provides for exactly this.
+ */
+const VERSION_FLAG = "--evie-version="
+const version =
+  process.argv.find((arg) => arg.startsWith(VERSION_FLAG))?.slice(VERSION_FLAG.length) ?? "0.0.0"
+
 const bridge: EvieBridge = {
   platform: process.platform,
-  version: process.env["EVIE_SHELL_VERSION"] ?? "0.0.0",
+  version,
   window: {
     close: () => ipcRenderer.send(CHANNEL.windowClose),
     minimize: () => ipcRenderer.send(CHANNEL.windowMinimize),
     zoom: () => ipcRenderer.send(CHANNEL.windowZoom),
+    // Plain numbers: everything crossing this bridge is structured-cloned, so
+    // the payload is rebuilt here rather than forwarded by reference.
+    setButtonPosition: (position) =>
+      ipcRenderer.send(
+        CHANNEL.windowButtonPosition,
+        position === null ? null : { x: Math.round(position.x), y: Math.round(position.y) },
+      ),
   },
   onDeepLink: (handler) => subscribe<DeepLink>(CHANNEL.deepLink, handler),
   onServerStatus: (handler) => subscribe<ServerStatus>(CHANNEL.serverStatus, handler),

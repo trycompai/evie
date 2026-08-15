@@ -42,8 +42,20 @@ exclude it from Vite's pre-bundling and point Tailwind at its source — both al
 
 ## Running it
 
-There is no desktop app yet — `apps/desktop` is a later phase. Today Evie is the
-server plus the web client, and the server serves the client:
+The desktop app is the shortest path to a running Evie. It builds the web
+client, bundles the server, and hosts it with Electron's own Node — nothing else
+to install, and it keeps its data in this repository's `.evie`, never `~/.evie`:
+
+```sh
+bun i
+turbo run build --filter=@evie/desktop
+cd apps/desktop && bunx electron .
+```
+
+It is tray-resident: closing the window leaves the server running, and **Quit
+Evie** in the menu bar is what stops it. macOS only, unsigned, no installer yet.
+
+To run the server and a browser instead — the server serves the client:
 
 ```sh
 bun i

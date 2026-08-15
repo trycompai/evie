@@ -20,6 +20,7 @@ export const CHANNEL = {
   windowClose: "evie:window/close",
   windowMinimize: "evie:window/minimize",
   windowZoom: "evie:window/zoom",
+  windowButtonPosition: "evie:window/button-position",
   deepLink: "evie:deep-link",
   serverStatus: "evie:server/status",
 } as const
@@ -55,6 +56,19 @@ export interface EvieBridge {
     readonly close: () => void
     readonly minimize: () => void
     readonly zoom: () => void
+    /**
+     * Moves the real macOS window buttons to where the design puts them.
+     *
+     * The buttons are the system's, not ours. Drawn circles cannot dim when the
+     * window loses focus, cannot show their glyphs on hover, do not honour
+     * Reduce Motion or Differentiate Without Color, and give the wrong answer
+     * on the green one -- native zoom is full-screen, and Option-zoom is fit.
+     * None of that is reachable from a `<button>`, so the app renders a spacer
+     * where the lights belong and tells the shell to put the real ones there.
+     *
+     * `null` restores the system default position, for a screen that wants it.
+     */
+    readonly setButtonPosition: (position: { x: number; y: number } | null) => void
   }
   /** Returns an unsubscribe. Ref-callback friendly, so no `useEffect` is needed. */
   readonly onDeepLink: (handler: (link: DeepLink) => void) => () => void

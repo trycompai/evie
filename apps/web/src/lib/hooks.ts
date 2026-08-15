@@ -4,7 +4,6 @@ import type { TimelineItem } from "@evie/contracts/timeline"
 import type { ConnectionState } from "@evie/client-runtime/client"
 import type { FleetSnapshot } from "@evie/client-runtime/store"
 import type { TimelineSnapshot } from "@evie/client-runtime/timeline"
-import { deepLinkStore, type DeepLinkEvent } from "./desktop.ts"
 import { useRuntime } from "./runtime.ts"
 
 /**
@@ -42,6 +41,11 @@ export function useFleet(): FleetSnapshot {
 /**
  * Thread-level state: the set of visible ids, the status chip, the frame mode.
  * Fires when the *set* changes, not when a row's content does.
+ *
+ * Reads only. Opening the stream is the chat route's loader
+ * (`routes/_app.chat.$threadId.tsx`), because the route is what knows it needs
+ * the data -- a subscription that also fetched would fire on any component that
+ * happened to look.
  */
 export function useThread(threadId: ThreadId): TimelineSnapshot {
   const { store } = useRuntime()
@@ -67,13 +71,7 @@ export function useTimelineItem(threadId: ThreadId, itemId: string): TimelineIte
   return useSyncExternalStore(subscribe, snapshot)
 }
 
-/**
- * The most recent `evie://` link the desktop shell delivered, or null.
- *
- * Always null in a browser -- the store is there, nothing ever writes to it.
- * Callers act on a *change* in `seq` during render rather than in an effect;
- * see `App`, which turns a new thread link into a selection.
+/*
+ * Deep links are not a hook. `main.tsx` hands them straight to the router --
+ * see `deepLinkStore` in `lib/desktop.ts`.
  */
-export function useDeepLink(): DeepLinkEvent | null {
-  return useSyncExternalStore(deepLinkStore.subscribe, deepLinkStore.snapshot, () => null)
-}

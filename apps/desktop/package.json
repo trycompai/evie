@@ -2,6 +2,7 @@
   "name": "@evie/desktop",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "The Evie desktop shell: a tray-resident macOS app that owns an Evie server and a window onto it.",
   "main": "out/main.cjs",
   "scripts": {
@@ -18,12 +19,13 @@
   "devDependencies": {
     "@evie/eslint-config": "workspace:*",
     "@evie/server": "workspace:*",
-    "@evie/web": "workspace:*",
     "@evie/typescript-config": "workspace:*",
+    "@evie/web": "workspace:*",
     "@types/node": "^24.13.3",
     "electron": "^40.1.0",
     "esbuild": "^0.25.10",
     "eslint": "^9.39.1",
+    "globals": "^17.11.0",
     "typescript": "5.9.2"
   }
 }

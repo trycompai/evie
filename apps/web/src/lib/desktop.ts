@@ -13,7 +13,7 @@
  */
 
 export type { DeepLink, ServerStatus, EvieBridge } from "@evie/shared/desktop-bridge"
-import type { DeepLink, EvieBridge } from "@evie/shared/desktop-bridge"
+import type { DeepLink, EvieBridge, ServerStatus } from "@evie/shared/desktop-bridge"
 
 const bridge = (globalThis as { evie?: EvieBridge }).evie ?? null
 
@@ -45,40 +45,50 @@ export const onServerStatus = (handler: (status: ServerStatus) => void): (() => 
 
 export const shellVersion = bridge?.version ?? null
 
-/* --- deep links as an external store ------------------------------------------
+/* --- deep links ----------------------------------------------------------------
  *
  * `evie://thread/<id>` can arrive at any moment, including before React has
  * mounted -- the shell buffers links that land during a cold start and flushes
- * them the instant the page finishes loading. So the subscription is opened
- * here, at module load, and components read the result through
- * `useSyncExternalStore` like every other piece of external state in this app.
+ * them the instant the page finishes loading. So the bridge subscription is
+ * opened here, at module load, and anything that arrives with no handler
+ * attached waits in `pending` until one is.
  *
- * `seq` is what makes a *repeat* of the same link observable: opening
- * `evie://thread/x` twice while already looking at thread x must still count as
- * an event, and comparing link objects cannot see that. */
+ * A link is an *event*, not state: it asks the window to go somewhere, and
+ * where the window is now lives in the URL. Delivering it to a handler is why
+ * there is no sequence number here any more -- opening `evie://thread/x` twice
+ * while already looking at thread x is two calls, which is the behaviour a
+ * counter existed to fake. */
 
-export interface DeepLinkEvent {
-  readonly seq: number
-  readonly link: DeepLink
-}
-
-let current: DeepLinkEvent | null = null
-const listeners = new Set<() => void>()
+const handlers = new Set<(link: DeepLink) => void>()
+let pending: DeepLink | null = null
 
 if (bridge !== null) {
   bridge.onDeepLink((link) => {
-    current = { seq: (current?.seq ?? 0) + 1, link }
-    for (const listener of listeners) listener()
+    if (handlers.size === 0) {
+      // Last one wins. Two links queued behind a cold start are two requests to
+      // be in two places, and the window can only honour the newer one.
+      pending = link
+      return
+    }
+    for (const handler of handlers) handler(link)
   })
 }
 
-/** Cached: a fresh object per call would spin `useSyncExternalStore` forever. */
 export const deepLinkStore = {
-  subscribe: (listener: () => void): (() => void) => {
-    listeners.add(listener)
+  /**
+   * Registers a handler, replaying whatever the shell delivered before React
+   * was ready. Returns an unsubscribe. No-op off desktop -- nothing ever
+   * writes here in a browser.
+   */
+  listen: (handler: (link: DeepLink) => void): (() => void) => {
+    handlers.add(handler)
+    if (pending !== null) {
+      const link = pending
+      pending = null
+      handler(link)
+    }
     return () => {
-      listeners.delete(listener)
+      handlers.delete(handler)
     }
   },
-  snapshot: (): DeepLinkEvent | null => current,
 } as const

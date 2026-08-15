@@ -91,7 +91,7 @@ not a gap; changing one back is a design conversation, not a bugfix.
 | `BrandTile` icon size | Hand-tuned 19–22px per brand inside a 34px plate | `round(size × 0.575)` for every brand | A 15-entry lookup table for ≤2px, with no rule behind the numbers. Revisit if a specific mark reads wrong. |
 | Launch tagline width | `width: 560px` | `w-[620px]` | 560px fits the artboard's system font on one line. Geist is wider, and Geist is the product's font. Keeping the number would orphan "work to." onto a second line — the design's intent is one line, and that is what was ported. |
 | Plugin row | Name + blurb | Name + blurb | Matches, after removing a "Each member signs in with their own account" line this codebase had added. It was true of nearly every row, and a line that appears on almost every row is not information. The sentence lives on the authorization card, where someone is actually about to hand over an account. |
-| Traffic lights | Always drawn | Rendered only inside the Electron shell | The browser has no window to close. Fake window controls are a lie the file cannot tell, because a Paper artboard is always the desktop app. |
+| Traffic lights | Always drawn | The **system's** buttons, moved to the drawn position; drawn only in the gallery | The browser has no window to close, and a Paper artboard is always the desktop app, so the file has to draw them. The shell does not: a drawn circle cannot dim when the window is inactive, reveal its glyph on hover, or treat green as full-screen. The app renders a spacer and tells the shell where to put the real ones. |
 
 ## When you change a component
 

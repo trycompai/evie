@@ -5,11 +5,17 @@ import { CHANNEL, type DeepLink, type ServerStatus } from "@evie/shared/desktop-
 /**
  * The one window.
  *
- * The design draws its own traffic lights inside the rail (`traffic-lights.tsx`,
- * `rail.tsx`), so the native buttons are hidden rather than the whole frame
- * removed: `titleBarStyle: "hidden"` plus `setWindowButtonVisibility(false)`
- * keeps macOS's rounded corners, shadow, and resize edges while giving the rail
- * the top of the window. `frame: false` would have thrown those away too.
+ * `titleBarStyle: "hidden"` gives the rail the top of the window while keeping
+ * macOS's rounded corners, shadow, and resize edges -- `frame: false` would have
+ * thrown those away too.
+ *
+ * The window buttons stay *native* and are merely moved. The design draws them
+ * at the same 12px/8px metric macOS uses, so the position matches; what a drawn
+ * copy cannot match is the behaviour -- dimming when the window is inactive,
+ * revealing glyphs when the pointer is over the group, Option-clicking the
+ * green one for fit instead of full-screen, and every accessibility setting
+ * that repaints them. The renderer measures where the design wants them and
+ * calls `setButtonPosition`; see `apps/web/src/components/window-controls.tsx`.
  *
  * Closing hides. Evie is tray-resident (see `tray.ts`) because "it keeps working
  * after you close the window" is the thing a local agent app is for; quitting is
@@ -52,12 +58,18 @@ export class MainWindow {
       minWidth: MIN_WIDTH,
       minHeight: MIN_HEIGHT,
       titleBarStyle: "hidden",
+      // Where the rail header puts them: 16px in, and vertically centred in a
+      // 36px row, which lands at 26. The renderer measures and re-sends this
+      // per screen; the literal exists only so the very first paint does not
+      // show the buttons jumping from the system default into place.
+      trafficLightPosition: { x: 16, y: 26 },
       backgroundColor: backgroundFor(),
       // Nothing is drawn until the app has painted, so there is no white flash
       // and no empty frame while the first RPC round-trip lands.
       show: false,
       webPreferences: {
         preload: preloadScript,
+        additionalArguments: [`--evie-version=${app.getVersion()}`],
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -65,8 +77,8 @@ export class MainWindow {
     })
     this.#window = window
 
-    // The rail draws the close/minimize/zoom buttons itself.
-    if (process.platform === "darwin") window.setWindowButtonVisibility(false)
+    // Explicit rather than implied: these are the system's buttons, shown.
+    if (process.platform === "darwin") window.setWindowButtonVisibility(true)
 
     window.once("ready-to-show", () => {
       window.show()
