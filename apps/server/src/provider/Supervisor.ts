@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { existsSync } from "node:fs"
+import { existsSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import type { BotHealth } from "@evie/contracts/bot"
 import { RuntimeUnavailable } from "@evie/contracts/errors"
@@ -199,6 +199,40 @@ export const inScopeOrder = <S extends string>(
     refs.filter((ref) => ref.scope === scope).map((ref) => ({ scope, name: ref.name })),
   )
 
+/**
+ * Where `eve dev` advertises a running dev server for a project.
+ *
+ * A second `eve dev` in the same directory adopts whatever this names instead
+ * of starting its own -- which is exactly right for a person running eve twice,
+ * and exactly wrong for us. The adopted server belongs to a previous Evie
+ * process and was spawned with that process's `EVIE_RUNTIME_SECRET`, so every
+ * request we make to it comes back **401** and the bot goes silent with no
+ * explanation. Any restart that does not cleanly stop its children -- a crash,
+ * a SIGKILL, `tsx watch` reloading -- leaves one of these behind.
+ */
+const DEV_SERVER_STATE = join(".eve", "dev-server-state.v1.json")
+
+/**
+ * Drops a dev server this process did not start, so the spawn below gets a
+ * fresh one holding a secret we know.
+ *
+ * Only the pointer file is removed. Killing the old process would mean finding
+ * it by port and matching it against a directory, and a stale runtime that
+ * nobody dials is a leak rather than a fault -- the idle-stop reaper and the
+ * next restart both collect it. Removing the pointer is what breaks the
+ * adoption, which is the part that produces the 401.
+ */
+const disownStaleRuntime = (dir: string) =>
+  Effect.sync(() => {
+    const pointer = join(dir, DEV_SERVER_STATE)
+    if (!existsSync(pointer)) return
+    rmSync(pointer, { force: true })
+  }).pipe(
+    Effect.tap(() =>
+      Effect.logDebug("Supervisor: cleared any inherited eve dev server", { dir }),
+    ),
+  )
+
 const make = Effect.gen(function* () {
   const config = yield* EvieConfig
   const sql = yield* SqlClient.SqlClient
@@ -251,6 +285,8 @@ const make = Effect.gen(function* () {
     dir: string,
     allowedHosts: ReadonlyArray<string>,
   ) {
+    yield* disownStaleRuntime(dir)
+
     const eveBin = join(dir, "node_modules", ".bin", "eve")
     if (!existsSync(eveBin)) {
       return yield* new StartError({

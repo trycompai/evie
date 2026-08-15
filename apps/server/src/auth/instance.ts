@@ -126,9 +126,28 @@ export const deriveBaseURL = (config: EvieConfigShape): string => {
   }
 }
 
+/**
+ * Origins Better Auth will answer for.
+ *
+ * The web dev server is its own origin: Vite serves the app on its port and
+ * proxies `/api`, `/blob` and `/rpc` through to this one, so every auth request
+ * arrives claiming `http://localhost:5173`-style rather than this server's
+ * address. Without it here Better Auth answers `Invalid origin`, the claim
+ * cannot be redeemed, and the app sits with no session while the socket itself
+ * connects perfectly — which is a long way from "check your auth config".
+ *
+ * Only in `local` mode, and only loopback: that is the same trust boundary the
+ * two entries below already sit on, since local mode binds loopback and every
+ * process on the machine can reach it either way. A `lan` or `tunnel` server
+ * gets no such indulgence.
+ */
 export const deriveTrustedOrigins = (config: EvieConfigShape): Array<string> => {
   const loopback = [`http://127.0.0.1:${config.port}`, `http://localhost:${config.port}`]
-  return config.mode === "local" ? loopback : [...loopback, deriveBaseURL(config)]
+  if (config.mode !== "local") return [...loopback, deriveBaseURL(config)]
+
+  const webPort = Number(process.env["EVIE_WEB_PORT"] ?? 3000)
+  if (!Number.isInteger(webPort) || webPort === config.port) return loopback
+  return [...loopback, `http://127.0.0.1:${webPort}`, `http://localhost:${webPort}`]
 }
 
 /* --- server secret ---------------------------------------------------------- */

@@ -50,7 +50,7 @@ Observed against a running server writing to a worktree-local `.evie`:
 
 **A bot now answers.** Observed end to end: a message typed into the real
 composer, dispatched, answered by `anthropic/claude-opus-4.8` through a stored
-gateway key, and rendered in the timeline. Getting there took six defects, and
+gateway key, and rendered in the timeline. Getting there took seven defects, and
 their shape is the lesson — every one was silent, and each sat *behind* the one
 before it, so no single fix ever produced a visible improvement:
 
@@ -100,6 +100,17 @@ before it, so no single fix ever produced a visible improvement:
    signals a server it did not start. `bun run app` remains the standalone
    launcher. Mutual exclusion and "who is already here" are the same question,
    and answering both from one file means they cannot disagree.
+7. **Two projections raced for `timeline_item.seq`.** The projector reactor and
+   `EveAdapter` each fold `apply` over their own `ReadModel` and each allocated
+   row positions from its own in-memory counter. They agree only until one
+   projects an event the other never sees — the reactor handles `MessageSent`
+   and checkpoint rows, the adapter handles assistant and tool rows — after
+   which both eventually issue the same number to different rows and the unique
+   index rejects the second. That took the **projector loop down entirely**, so
+   the UI silently stopped updating while the server looked healthy. Positions
+   are now allocated in SQL (`coalesce(existing, max+1)`) under the single
+   writer, so neither caller can name one. It had been latent for as long as the
+   adapter's writes were failing for reason 3; fixing that surfaced this.
 
 The through-line: a cast that lies (`as TurnId`) and a field name assumed rather
 than read. Both type-check. `EveAdapter` still has no recorded-stream fixture,
