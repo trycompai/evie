@@ -1,6 +1,14 @@
 import { memo } from "react"
 import type { Part, TimelineItem } from "@evie/contracts/timeline"
 import { ApprovalCard } from "@evie/ui/components/approval-card"
+import {
+  Attachment,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentMedia,
+  AttachmentTitle,
+} from "@evie/ui/components/attachment"
+import { FileIcon } from "@evie/ui/components/icon"
 import { AuthorizationCard } from "@evie/ui/components/authorization-card"
 import { Markdown } from "@evie/ui/components/markdown"
 import { AssistantBubble, UserBubble } from "@evie/ui/components/message"
@@ -63,9 +71,15 @@ function renderParts(
         )
       case "file":
         return (
-          <p key={i} className="text-metadata text-fg-muted">
-            {part.filename ?? part.mediaType}
-          </p>
+          <Attachment key={i} size="sm">
+            <AttachmentMedia>
+              <FileIcon />
+            </AttachmentMedia>
+            <AttachmentContent>
+              <AttachmentTitle>{part.filename ?? part.mediaType}</AttachmentTitle>
+              {part.filename && <AttachmentDescription>{part.mediaType}</AttachmentDescription>}
+            </AttachmentContent>
+          </Attachment>
         )
     }
   })

@@ -107,7 +107,7 @@ export function NewBotScreen({
         <span className="flex w-[22px] shrink-0 items-center justify-center">
           <BotMark size={18} shape={shape} tone={tone} />
         </span>
-        <h1 className="text-ui font-medium text-fg">New bot</h1>
+        <h1 className="text-ui font-medium text-fg select-none">New bot</h1>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-10">
@@ -185,7 +185,7 @@ export function NewBotScreen({
       </div>
 
       <div className="flex shrink-0 flex-col gap-3 px-7 pb-7">
-        <p className="text-compact text-fg-muted">Suggestions</p>
+        <p className="text-compact text-fg-muted select-none">Suggestions</p>
         <div className="flex gap-3">
           {BOT_SUGGESTIONS.map((suggestion) => (
             <button
@@ -193,7 +193,7 @@ export function NewBotScreen({
               type="button"
               onClick={() => onPickSuggestion(suggestion)}
               className={cn(
-                "flex min-w-0 flex-1 items-start gap-3.5 rounded-default bg-raised p-4 text-left",
+                "flex min-w-0 flex-1 items-start gap-3.5 rounded-default bg-raised p-4 text-left select-none",
                 "hover:bg-raised-strong focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
               )}
             >

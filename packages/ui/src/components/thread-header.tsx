@@ -34,7 +34,7 @@ export function ThreadHeader({
 }: ThreadHeaderProps) {
   return (
     <header
-      className="flex h-14 shrink-0 items-center gap-2.5 px-5"
+      className="flex h-14 shrink-0 items-center gap-2.5 px-5 select-none"
       // The header is the rest of the window's drag handle -- the rail owns the
       // left 280px, this owns the remainder.
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}

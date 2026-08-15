@@ -45,7 +45,7 @@ export function PluginRow({
         type="button"
         onClick={installed ? onRemove : onAdd}
         className={cn(
-          "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-small px-4 text-compact font-medium",
+          "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-small px-4 text-compact font-medium select-none",
           "focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
           installed
             ? // Added is a state, and it has to be reversible: the same control
@@ -76,13 +76,13 @@ export function PluginSection({
 }) {
   return (
     <section className="flex flex-col gap-3.5">
-      <h3 className="text-compact text-fg-muted">{title}</h3>
+      <h3 className="text-compact text-fg-muted select-none">{title}</h3>
       <div className="grid grid-cols-1 gap-x-10 gap-y-3.5 desktop:grid-cols-2">{children}</div>
       {more !== undefined && more > 0 && (
         <button
           type="button"
           onClick={onShowMore}
-          className="self-start text-compact text-fg-muted hover:text-fg focus-visible:outline-none"
+          className="self-start text-compact text-fg-muted select-none hover:text-fg focus-visible:outline-none"
         >
           Show {more} more
         </button>

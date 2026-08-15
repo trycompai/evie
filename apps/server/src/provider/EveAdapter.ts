@@ -2,7 +2,7 @@ import { InvalidCommand, NotFound, RuntimeUnavailable } from "@evie/contracts/er
 import { EveMirrored, type StoredEvent } from "@evie/contracts/events"
 import type { BotId, EventId, OrgId, SessionId, ThreadId, TurnId, UserId } from "@evie/contracts/ids"
 import type { ThreadStatus } from "@evie/contracts/thread"
-import { TimelineItem } from "@evie/contracts/timeline"
+import { TimelineItem, type ProviderTurnRef } from "@evie/contracts/timeline"
 import { ulid } from "@evie/shared/ulid"
 import {
   Cause,
@@ -38,7 +38,9 @@ import {
 } from "../domain/project.ts"
 import type { Actor } from "../domain/state.ts"
 import { type AppendInput, EventStore } from "../store/EventStore.ts"
+import { positionOf, ThreadPositions } from "../store/positions.ts"
 import { Supervisor } from "./Supervisor.ts"
+import { makeTurnOrigins } from "./turn-origins.ts"
 
 /**
  * The ONLY eve-aware module (02, "The eve provider adapter"). Everything above
@@ -79,7 +81,8 @@ export type ThreadDelta =
       readonly _tag: "reasoning"
       readonly threadId: ThreadId
       readonly botId: BotId
-      readonly turnId: string | null
+      /** eve's turn reference: what the timeline rows this lands on are keyed by. */
+      readonly turnId: ProviderTurnRef | null
       readonly text: string
     }
   | {
@@ -101,6 +104,12 @@ export interface DispatchInput {
   readonly actor: Actor
   /** `"steer"` for user messages, `"queue"` for routine dispatches (02). */
   readonly turnPolicy: "steer" | "queue"
+  /**
+   * Evie's id for this turn. The adapter pins it to eve's own reference on the
+   * next `turn.started`, which is what lets the status chip carry an id
+   * `CancelTurn` will accept. See `turn-origins.ts`.
+   */
+  readonly turnId?: TurnId
   /** Other participants' recent turns. eve keeps it out of durable history. */
   readonly clientContext?: string | ReadonlyArray<string>
   /** Create-once idempotency for new sessions. Derive from the triggering event id. */
@@ -133,8 +142,9 @@ export interface EveAdapterShape {
   readonly answerInput: (
     input: SessionOpInput & { readonly responses: ReadonlyArray<InputResponse> },
   ) => Effect.Effect<void, RuntimeUnavailable | InvalidCommand>
+  /** `turnId` is Evie's; the adapter translates it to eve's own reference. */
   readonly cancel: (
-    input: SessionOpInput & { readonly turnId?: string },
+    input: SessionOpInput & { readonly turnId?: TurnId },
   ) => Effect.Effect<void, RuntimeUnavailable | InvalidCommand>
   readonly compact: (input: SessionOpInput) => Effect.Effect<void, RuntimeUnavailable | InvalidCommand>
   readonly clear: (input: SessionOpInput) => Effect.Effect<void, RuntimeUnavailable | InvalidCommand>
@@ -303,37 +313,19 @@ const make = Effect.gen(function* () {
 
   const deltas = yield* PubSub.unbounded<ThreadDelta>()
 
-  /** One shared read model; threads are loaded into it lazily and never evicted. */
-  const model = emptyReadModel()
+  /**
+   * One shared read model; threads are loaded into it lazily and never
+   * evicted. Its row positions come from the process-wide allocator, because
+   * the projector reactor writes the same table from its own model.
+   */
+  const model = emptyReadModel(yield* ThreadPositions)
   const loadWaiters = new Map<string, Deferred.Deferred<void, SqlError>>()
 
-  /* --- turn attribution -------------------------------------------------------
-   * eve does not echo the caller on stream events, so the adapter remembers who
-   * it dispatched for (FIFO per session) and pins that member to the turn id it
-   * sees on the next `turn.started`. An approximation under steering, and the
-   * honest one available. */
-  const pendingActors = new Map<string, Array<UserId>>()
-  const turnActors = new Map<string, Map<string, UserId>>()
-
-  const pushPendingActor = (sessionId: SessionId, userId: UserId) => {
-    const pending = pendingActors.get(sessionId) ?? []
-    pending.push(userId)
-    if (pending.length > 32) pending.shift()
-    pendingActors.set(sessionId, pending)
-  }
-  const assignActor = (sessionId: SessionId, turnId: string) => {
-    const userId = pendingActors.get(sessionId)?.shift()
-    if (userId === undefined) return
-    const byTurn = turnActors.get(sessionId) ?? new Map<string, UserId>()
-    byTurn.set(turnId, userId)
-    if (byTurn.size > 128) {
-      const oldest = byTurn.keys().next().value
-      if (oldest !== undefined) byTurn.delete(oldest)
-    }
-    turnActors.set(sessionId, byTurn)
-  }
-  const actorFor = (sessionId: SessionId, turnId: string | null): UserId | null =>
-    turnId === null ? null : (turnActors.get(sessionId)?.get(turnId) ?? null)
+  /* --- turn attribution --------------------------------------------------------
+   * Who a stream event acts as, and which of Evie's turns it belongs to. eve
+   * echoes neither, so the adapter keeps the mapping itself; `turn-origins.ts`
+   * explains why both halves matter. */
+  const origins = makeTurnOrigins()
 
   /**
    * The identity on machine-to-machine reads (the NDJSON stream). eve verifies
@@ -412,7 +404,10 @@ const make = Effect.gen(function* () {
         reason: "eve accepted the turn but returned no session id",
       })
     }
-    pushPendingActor(sessionId, input.actor.userId)
+    origins.dispatched(sessionId, {
+      userId: input.actor.userId,
+      turnId: input.turnId ?? null,
+    })
     return { sessionId }
   })
 
@@ -421,13 +416,22 @@ const make = Effect.gen(function* () {
       inputResponses: input.responses,
     }).pipe(Effect.asVoid)
 
-  const cancel: EveAdapterShape["cancel"] = (input) =>
-    postSession(
+  /**
+   * eve stops a turn by its own reference, so Evie's id is translated here.
+   * An untranslatable id -- a turn named before this process started -- omits
+   * the field, which asks eve to cancel whatever is running. That is what the
+   * user pressed Stop for, and it beats naming a turn eve never minted.
+   */
+  const cancel: EveAdapterShape["cancel"] = (input) => {
+    const providerRef =
+      input.turnId === undefined ? null : origins.providerRef(input.sessionId, input.turnId)
+    return postSession(
       input.botId,
       input.actor,
       `/session/${input.sessionId}/cancel`,
-      input.turnId === undefined ? {} : { turnId: input.turnId },
+      providerRef === null ? {} : { turnId: providerRef },
     ).pipe(Effect.asVoid)
+  }
 
   const compact: EveAdapterShape["compact"] = (input) =>
     postSession(input.botId, input.actor, `/session/${input.sessionId}/compact`, {}).pipe(
@@ -487,7 +491,6 @@ const make = Effect.gen(function* () {
 
     if (!model.timelines.has(threadId)) {
       const timeline: ThreadTimeline = {
-        nextSeq: 1,
         items: new Map(),
         toolByCall: new Map(),
         inputByRequest: new Map(),
@@ -498,18 +501,21 @@ const make = Effect.gen(function* () {
       const items = yield* sql<{
         actor_user_id: string | null
         body: string
-      }>`select actor_user_id, body from timeline_item where thread_id = ${threadId} order by seq asc`
+        seq: number | bigint
+      }>`select actor_user_id, body, seq from timeline_item
+         where thread_id = ${threadId} order by seq asc`
       for (const row of items) {
         // One undecodable row (an old contract version, say) must not take the
         // whole thread down; the projection is rebuildable from the mirror.
         let item: TimelineItem
         try {
-          item = decodeItem(JSON.parse(row.body))
+          // The column is the position, not whatever the body was written with.
+          item = decodeItem({ ...JSON.parse(row.body), seq: Number(row.seq) })
         } catch {
           continue
         }
         timeline.items.set(item.id, { threadId, item, actorUserId: row.actor_user_id })
-        timeline.nextSeq = Math.max(timeline.nextSeq, item.seq + 1)
+        model.positions.observe(threadId, item.seq)
         switch (item.kind) {
           case "tool":
             timeline.toolByCall.set(item.callId, item.id)
@@ -549,36 +555,22 @@ const make = Effect.gen(function* () {
 
   /* --- persistence (the flush tick) --------------------------------------------- */
 
+  /** The same statement the projector writes; `positionOf` explains the position. */
   const persistTimeline = (row: TimelineRow) => {
     const item = row.item
     const botId = "botId" in item ? item.botId : null
     const turnId = "turnId" in item ? item.turnId : null
+    const position = positionOf(sql, {
+      id: item.id,
+      threadId: row.threadId,
+      predicted: item.seq,
+    })
     return sql`
       insert into timeline_item (id, thread_id, seq, kind, bot_id, actor_user_id, turn_id, body, at)
-      values (${item.id}, ${row.threadId},
-              /*
-               * The row's position is allocated here, not by the caller.
-               *
-               * Two independent projections write this table -- the reactor,
-               * folding the whole event log, and the adapter, folding a live
-               * eve stream inline for latency -- and each used to hand out
-               * positions from its own in-memory counter. They agree only until
-               * one of them projects an event the other never sees (a user
-               * message, a checkpoint row), after which both eventually issue
-               * the same number to different rows and the unique index rejects
-               * the second. That took the projector loop down entirely.
-               *
-               * An existing row keeps the position it was given; a new one
-               * takes the next free position in its thread. Both are read
-               * inside this statement, under the single writer, so the answer
-               * cannot be stale by the time it is used.
-               */
-              coalesce(
-                (select seq from timeline_item where id = ${item.id}),
-                (select coalesce(max(seq), 0) + 1 from timeline_item where thread_id = ${row.threadId})
-              ),
-              ${item.kind}, ${botId},
-              ${row.actorUserId}, ${turnId}, ${JSON.stringify(encodeItem(item))}, ${item.at})
+      select ${item.id}, ${row.threadId}, position, ${item.kind}, ${botId},
+             ${row.actorUserId}, ${turnId},
+             json_set(${JSON.stringify(encodeItem(item))}, '$.seq', position), ${item.at}
+      from (select ${position} as position) where true
       on conflict (id) do update set
         kind = excluded.kind,
         actor_user_id = excluded.actor_user_id,
@@ -697,14 +689,16 @@ const make = Effect.gen(function* () {
 
       if (eveType === "turn.started") {
         const startedTurn = str(payload["turnId"])
-        if (startedTurn !== undefined) assignActor(ctx.sessionId, startedTurn)
+        if (startedTurn !== undefined) origins.named(ctx.sessionId, startedTurn)
       }
       if (eveType === "session.completed" || eveType === "session.failed") {
         state.terminal = true
       }
 
-      const turnId = str(payload["turnId"]) ?? null
-      const actorUserId = actorFor(ctx.sessionId, turnId)
+      // eve's own turn reference, and the dispatch it was pinned to.
+      const providerTurnRef = str(payload["turnId"]) ?? null
+      const origin = origins.of(ctx.sessionId, providerTurnRef)
+      const actorUserId = origin?.userId ?? null
 
       // Reasoning deltas: to the hub and gone. Never mirrored, never queued --
       // the resume cursor simply moves past them with the next persisted event.
@@ -714,7 +708,7 @@ const make = Effect.gen(function* () {
           _tag: "reasoning",
           threadId: ctx.threadId,
           botId: ctx.botId,
-          turnId,
+          turnId: providerTurnRef,
           text,
         }).pipe(Effect.asVoid)
       }
@@ -758,14 +752,17 @@ const make = Effect.gen(function* () {
           }),
         )
       }
-      // eve names the turn on the events that mean one is running, which is
-      // exactly when the composer needs an id to cancel with.
-      const status = statusOf(
-        eveType,
-        payload,
-        actorUserId,
-        (str(payload["turnId"]) ?? null) as TurnId | null,
-      )
+      /*
+       * eve names the turn on the events that mean one is running, which is
+       * exactly when the composer needs an id to cancel with -- but it names
+       * its OWN turn, and the chip must carry Evie's. Casting eve's reference
+       * to `TurnId` here compiled and then failed `ThreadStatus`'s schema on
+       * the wire, killing the subscriber's stream for the rest of the turn:
+       * the reply landed in the database and reached no one until the client
+       * reconnected. `origins` is the translation, and null is the honest
+       * answer for a turn this process did not dispatch.
+       */
+      const status = statusOf(eveType, payload, actorUserId, origin?.turnId ?? null)
       if (status !== undefined) {
         const key = JSON.stringify(status)
         if (key !== state.lastStatus) {

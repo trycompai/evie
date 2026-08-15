@@ -514,7 +514,9 @@ export const HandlersLive = EvieRpcAuthed.toLayer(
           const items: Array<TimelineItem> = []
           for (const row of rows) {
             try {
-              items.push(decodeItem(JSON.parse(row.body)))
+              // `seq` comes off the column, which is the row's position; the
+              // copy in the body is written from it and only agrees.
+              items.push(decodeItem({ ...JSON.parse(row.body), seq: Number(row.seq) }))
             } catch {
               // A row this build cannot decode is skipped, not fatal.
             }

@@ -149,7 +149,7 @@ function Pane({
         <button
           type="button"
           onClick={action.onSelect}
-          className="rounded-pill bg-fg px-5 py-2.5 text-ui font-medium text-surface hover:opacity-90"
+          className="rounded-pill bg-fg px-5 py-2.5 text-ui font-medium text-surface select-none hover:opacity-90"
         >
           {action.label}
         </button>

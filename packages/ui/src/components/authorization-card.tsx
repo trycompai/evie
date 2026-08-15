@@ -80,7 +80,7 @@ export function AuthorizationCard({
         rel="noreferrer noopener"
         onClick={onOpen}
         className={cn(
-          "flex h-11 items-center justify-center rounded-pill bg-fg px-4 text-ui font-medium text-surface",
+          "flex h-11 items-center justify-center rounded-pill bg-fg px-4 text-ui font-medium text-surface select-none",
           "hover:opacity-90 focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
           !url && "pointer-events-none opacity-50",
         )}

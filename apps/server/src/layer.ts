@@ -24,6 +24,7 @@ import { TurnReactorLive } from "./reactors/turn.ts"
 import { Scheduler } from "./scheduler/Scheduler.ts"
 import { Secrets } from "./secrets/Secrets.ts"
 import { EventStore } from "./store/EventStore.ts"
+import { ThreadPositions } from "./store/positions.ts"
 
 /**
  * The composed process. Boot order is part of the design (02, "Boot"):
@@ -63,6 +64,13 @@ const EventStoreLive = EventStore.layer.pipe(Layer.provide(DbLive), Layer.provid
 
 const WakeLive = ReactorWake.layer
 const HubLive = Hub.layer.pipe(Layer.provide(DbLive))
+
+/**
+ * One allocator for `timeline_item.seq`, shared by the two projections that
+ * write that table. Memoized like every other layer here, which is exactly
+ * what makes it shared -- see `store/positions.ts`.
+ */
+const PositionsLive = ThreadPositions.layer
 const SecretsLive = Secrets.layer.pipe(Layer.provide([DbLive, ConfigLive]), Layer.provide(SchemaLive))
 
 /* --- the provider: eve runtimes, the adapter, and the reactor-facing seams ---- */
@@ -79,7 +87,15 @@ const SupervisorLive = Supervisor.layer.pipe(
 const ScaffoldLive = Scaffold.layer.pipe(Layer.provide([ConfigLive, NodeLive]))
 
 const AdapterLive = EveAdapter.layer.pipe(
-  Layer.provide([ConfigLive, DbLive, EventStoreLive, SupervisorLive, HttpClientLive, WakeLive]),
+  Layer.provide([
+    ConfigLive,
+    DbLive,
+    EventStoreLive,
+    SupervisorLive,
+    HttpClientLive,
+    WakeLive,
+    PositionsLive,
+  ]),
 )
 
 const TurnDispatchL = TurnDispatchLive.pipe(Layer.provide([AdapterLive, DbLive]))
@@ -92,7 +108,15 @@ const SchedulerLive = Scheduler.layer.pipe(Layer.provide([DbLive, EventStoreLive
 
 const ReactorsLive = Layer.mergeAll(
   ProjectorReactorLive.pipe(
-    Layer.provide([DbLive, EventStoreLive, WakeLive, ConfigLive, HubLive, SchedulerLive]),
+    Layer.provide([
+      DbLive,
+      EventStoreLive,
+      WakeLive,
+      ConfigLive,
+      HubLive,
+      SchedulerLive,
+      PositionsLive,
+    ]),
   ),
   TurnReactorLive.pipe(Layer.provide([DbLive, EventStoreLive, WakeLive, TurnDispatchL])),
   RoutineReactorLive.pipe(

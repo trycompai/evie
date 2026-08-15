@@ -128,7 +128,11 @@ const makeTurnDispatch = Effect.gen(function* () {
           message: input.message,
           actor,
           turnPolicy: input.turnPolicy,
-          // Create-idempotency: a crash-replayed dispatch reuses the turn id.
+          // Both from Evie's turn id, for two different jobs: eve dedupes
+          // session creation on `operationId`, and the adapter pins `turnId`
+          // to eve's own turn reference so the status chip can carry an id
+          // `CancelTurn` will match.
+          turnId: input.turnId,
           operationId: input.turnId,
         }),
       )

@@ -74,7 +74,7 @@ export function ConnectAppsScreen({
               aria-pressed={isSelected}
               onClick={() => onToggle(app.id)}
               className={cn(
-                "flex h-16 min-w-0 items-center gap-3 rounded-[12px] border bg-raised px-3.5",
+                "flex h-16 min-w-0 items-center gap-3 rounded-[12px] border bg-raised px-3.5 select-none",
                 "focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
                 isSelected ? "border-fg" : "border-transparent",
               )}

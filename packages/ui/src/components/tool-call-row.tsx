@@ -72,7 +72,7 @@ export function ToolCallRow({
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="flex h-9 w-full items-center gap-2.5 px-3 text-left hover:bg-raised focus-visible:outline-none"
+        className="flex h-9 w-full items-center gap-2.5 px-3 text-left select-none hover:bg-raised focus-visible:outline-none"
       >
         <span className="flex w-4 shrink-0 items-center justify-center text-fg-muted">
           <ChevronRightIcon className={cn("transition-transform", open && "rotate-90")} />

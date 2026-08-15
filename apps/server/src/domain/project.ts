@@ -110,8 +110,49 @@ export type RowChange =
 
 /* --- model ------------------------------------------------------------------ */
 
+/**
+ * Where a new row goes in its thread.
+ *
+ * Deliberately NOT part of a `ThreadTimeline`, which is per-model. Two
+ * projections write `timeline_item` -- this one folding the event log, the
+ * adapter folding a live eve stream -- and a counter inside each model agrees
+ * with the other only until one of them projects an event the other never sees
+ * (a user message, a checkpoint row). From then on they hand out the same
+ * number for different rows.
+ *
+ * The database refuses that, so the insert clamps the position to the next
+ * free one and the row lands correctly either way. What it cannot fix is the
+ * number already sent to clients on the live frame: the two drifted apart, one
+ * row per unshared event, until the position a client sorted by and the
+ * position the server paged by were different numbers for the same row. Rows
+ * tied, `since` cursors compared across the two, and every reconnect re-sent
+ * rows the client already had.
+ *
+ * One allocator per process, seeded from the table, is the whole fix: both
+ * projections predict the same position, and it is the one the row gets.
+ */
+export interface ThreadPositions {
+  /** The next free position in this thread. Advances on every call. */
+  readonly allocate: (threadId: string) => number
+  /** Records a position already taken, so the next allocation clears it. */
+  readonly observe: (threadId: string, seq: number) => void
+}
+
+export const makeThreadPositions = (): ThreadPositions => {
+  const next = new Map<string, number>()
+  return {
+    allocate: (threadId) => {
+      const seq = next.get(threadId) ?? 1
+      next.set(threadId, seq + 1)
+      return seq
+    },
+    observe: (threadId, seq) => {
+      if (seq >= (next.get(threadId) ?? 1)) next.set(threadId, seq + 1)
+    },
+  }
+}
+
 interface ThreadTimeline {
-  nextSeq: number
   readonly items: Map<string, TimelineRow>
   /** callId -> item id */
   readonly toolByCall: Map<string, string>
@@ -131,15 +172,21 @@ export interface ReadModel {
   readonly routines: Map<string, RoutineRow>
   readonly connections: Map<string, ConnectionRow>
   readonly timelines: Map<string, ThreadTimeline>
+  /** Shared with every other projection that writes `timeline_item`. */
+  readonly positions: ThreadPositions
 }
 
-export const emptyReadModel = (): ReadModel => ({
+/** The shared allocator is an argument because sharing it is the point. */
+export const emptyReadModel = (
+  positions: ThreadPositions = makeThreadPositions(),
+): ReadModel => ({
   bots: new Map(),
   threads: new Map(),
   participants: new Map(),
   routines: new Map(),
   connections: new Map(),
   timelines: new Map(),
+  positions,
 })
 
 /* --- tolerant readers for eve payloads ----------------------------------------
@@ -182,7 +229,6 @@ const timelineOf = (model: ReadModel, threadId: string): ThreadTimeline => {
   let timeline = model.timelines.get(threadId)
   if (timeline === undefined) {
     timeline = {
-      nextSeq: 1,
       items: new Map(),
       toolByCall: new Map(),
       inputByRequest: new Map(),
@@ -197,7 +243,21 @@ const timelineOf = (model: ReadModel, threadId: string): ThreadTimeline => {
 /** `Omit` that distributes over the `TimelineItem` union instead of collapsing it. */
 type ItemSansSeq = TimelineItem extends infer T ? (T extends TimelineItem ? Omit<T, "seq"> : never) : never
 
-/** Upserts by item id: a known id keeps its seq (last-writer-wins), a new one takes the next. */
+/**
+ * Upserts by item id: a known id keeps its seq (last-writer-wins), a new one
+ * takes the next.
+ *
+ * It keeps its `at` too, which is not just cosmetic. A streaming reply is one
+ * row re-projected on every delta, and eve stamps each delta with its own
+ * time, so a moving `at` made the row a different row every 50 ms: the
+ * gateway's diff (`gateway/pump.ts`) compares everything except the text to
+ * decide between a text suffix and a full replace, and a timestamp that always
+ * moved meant it always chose replace. The whole cumulative message went over
+ * the socket once per delta -- quadratic in the length of the reply, on the one
+ * path that has to stay cheap (03, "Frame budget"). The honest value is when
+ * the row first appeared; a message does not change the time it was sent while
+ * it is still being written.
+ */
 const putItem = (
   model: ReadModel,
   threadId: ThreadId,
@@ -206,11 +266,12 @@ const putItem = (
 ): RowChange => {
   const timeline = timelineOf(model, threadId)
   const existing = timeline.items.get(item.id)
-  const seq = existing?.item.seq ?? timeline.nextSeq++
+  const seq = existing?.item.seq ?? model.positions.allocate(threadId)
+  const at = existing?.item.at ?? item.at
   const row: TimelineRow = {
     threadId,
     actorUserId,
-    item: { ...item, seq } as TimelineItem,
+    item: { ...item, seq, at } as TimelineItem,
   }
   timeline.items.set(item.id, row)
   return { kind: "timeline", row }

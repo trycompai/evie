@@ -343,7 +343,9 @@ const make = Effect.gen(function* () {
     for (const row of rows) {
       maxSeq = Math.max(maxSeq, Number(row.seq))
       try {
-        ops.push({ op: "insert", item: decodeItem(JSON.parse(row.body)) })
+        // The column is the position the `since` cursor is expressed in, so it
+        // is the one the replayed item carries.
+        ops.push({ op: "insert", item: decodeItem({ ...JSON.parse(row.body), seq: Number(row.seq) }) })
       } catch {
         // A row this build cannot decode is skipped, not fatal for the thread.
       }

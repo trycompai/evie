@@ -1,7 +1,16 @@
 import type { SessionInfo } from "@evie/contracts/org";
 import { EvieRpc } from "@evie/contracts/rpc";
 import { CONTRACT_VERSION } from "@evie/contracts/version";
-import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
+import {
+	Cause,
+	Deferred,
+	Effect,
+	Exit,
+	Fiber,
+	Layer,
+	ManagedRuntime,
+	Stream,
+} from "effect";
 import type { RpcClientError, RpcGroup } from "effect/unstable/rpc";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Socket } from "effect/unstable/socket";
@@ -66,10 +75,17 @@ export interface EvieClient {
 	 * Deliberately callback-shaped rather than async-iterator-shaped: the store
 	 * applies a frame synchronously and then notifies listeners, and an
 	 * `for await` loop would put a microtask between the two for no benefit.
+	 *
+	 * `onEnd` fires when the stream stops for any reason other than the caller
+	 * unsubscribing -- a frame that failed to decode, a handler that died, the
+	 * server ending a stream that should be endless. Swallowing that (which is
+	 * what this used to do) turns one bad frame into a thread that never moves
+	 * again, with nothing in the UI to say so.
 	 */
 	readonly stream: <A>(
 		f: (client: Client) => Stream.Stream<A, unknown>,
 		onValue: (value: A) => void,
+		onEnd?: (cause: unknown) => void,
 	) => () => void;
 	readonly close: () => Promise<void>;
 }
@@ -123,11 +139,22 @@ export function createEvieClient(options: EvieClientOptions): EvieClient {
 	return {
 		ready: hello,
 		rpc: (f) => runtime.runPromise(withClient(f)),
-		stream: (f, onValue) => {
+		stream: (f, onValue, onEnd) => {
 			const running = runtime.runFork(
-				withClient((client) =>
-					Stream.runForEach(f(client), (value) =>
-						Effect.sync(() => onValue(value)),
+				Effect.exit(
+					withClient((client) =>
+						Stream.runForEach(f(client), (value) =>
+							Effect.sync(() => onValue(value)),
+						),
+					),
+				).pipe(
+					Effect.flatMap((exit) =>
+						Effect.sync(() => {
+							// Unsubscribing interrupts this fiber; that is not an end
+							// worth reporting, it is the caller getting what they asked for.
+							if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)) return;
+							onEnd?.(Exit.isFailure(exit) ? exit.cause : undefined);
+						}),
 					),
 				),
 			);

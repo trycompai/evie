@@ -97,11 +97,11 @@ export function LaunchScreen({ state, onReopen, onCancel, desktop }: LaunchScree
       </p>
 
       <div className="flex flex-col items-center gap-[18px] pt-6">
-        <div className="flex items-center gap-2.5" role="status">
+        <div className="flex items-center gap-2.5 select-none" role="status">
           <StatusRing />
           <span className="text-body text-fg-muted">{STATUS_COPY[state]}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 select-none">
           <button
             type="button"
             onClick={onReopen}
@@ -123,7 +123,7 @@ export function LaunchScreen({ state, onReopen, onCancel, desktop }: LaunchScree
       </div>
 
       <div className="absolute inset-x-0 bottom-10 flex items-center justify-center gap-2.5">
-        <span className="text-compact text-fg-muted">Powered by</span>
+        <span className="text-compact text-fg-muted select-none">Powered by</span>
         <EveWordmark />
       </div>
     </div>

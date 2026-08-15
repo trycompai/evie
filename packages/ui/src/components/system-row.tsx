@@ -1,11 +1,13 @@
 import { cn } from "@evie/ui/lib/utils"
+import { Marker, MarkerContent } from "@evie/ui/components/marker"
 
 /**
  * Quiet rows: something happened to the session, or something failed.
  *
- * Both are centred and small. A compaction is not news, and an error that
- * shouts is an error the user learns to scroll past -- what makes an error
- * useful is the retry next to it, not the colour.
+ * The session notes render as `Marker`s -- the chat component made for status
+ * updates and system notes -- centred and small. A compaction is not news, and
+ * an error that shouts is an error the user learns to scroll past: what makes
+ * an error useful is the retry next to it, not the colour.
  */
 
 export type SystemEvent = "compacted" | "cleared" | "checkpoint" | "restored" | "budgetReached"
@@ -28,13 +30,13 @@ export function SystemRow({
   readonly action?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-center gap-2 py-1">
-      <span className="text-metadata text-fg-muted">
+    <Marker className="justify-center gap-2 py-1 text-metadata select-none">
+      <MarkerContent>
         {SYSTEM_LABEL[event]}
         {detail ? ` · ${detail}` : ""}
-      </span>
+      </MarkerContent>
       {action}
-    </div>
+    </Marker>
   )
 }
 
@@ -69,7 +71,7 @@ export function ErrorRow({
 }
 
 const ACTION = cn(
-  "shrink-0 rounded-small px-2 py-1 text-metadata font-medium text-fg",
+  "shrink-0 rounded-small px-2 py-1 text-metadata font-medium text-fg select-none",
   "hover:bg-raised focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
 )
 
@@ -79,8 +81,8 @@ const ACTION = cn(
  */
 export function ThinkingRow({ label = "Thinking" }: { readonly label?: string }) {
   return (
-    <div className="flex items-center gap-2 py-1">
-      <span className="evie-thinking text-compact text-fg-muted">{label}</span>
-    </div>
+    <Marker className="py-1 text-compact select-none">
+      <MarkerContent className="evie-thinking">{label}</MarkerContent>
+    </Marker>
   )
 }

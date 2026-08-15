@@ -29,7 +29,7 @@ export function TextField({
   const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined
   return (
     <div className={cn("flex flex-col gap-2", containerClassName)}>
-      <label htmlFor={id} className="text-compact text-fg-muted">
+      <label htmlFor={id} className="text-compact text-fg-muted select-none">
         {label}
       </label>
       <input

@@ -51,7 +51,7 @@ export function MemberAvatar({ name, image, size = 22, fontSize, className }: Me
     <span
       aria-hidden
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full bg-raised font-medium text-fg",
+        "flex shrink-0 items-center justify-center rounded-full bg-raised font-medium text-fg select-none",
         className,
       )}
       style={{ width: size, height: size, fontSize: fontSize ?? Math.round(size * 0.5), lineHeight: 1 }}

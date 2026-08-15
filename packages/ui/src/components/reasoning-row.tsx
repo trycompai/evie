@@ -50,7 +50,7 @@ export function ReasoningRow({ tokens, text, live, onWatch }: ReasoningRowProps)
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="flex items-center gap-1.5 text-metadata text-fg-muted hover:text-fg focus-visible:outline-none"
+        className="flex items-center gap-1.5 text-metadata text-fg-muted select-none hover:text-fg focus-visible:outline-none"
       >
         <ChevronRightIcon size={12} className={cn("transition-transform", open && "rotate-90")} />
         {live && tokens === 0 ? "Thinking" : `Thought for ${format(tokens)} tokens`}

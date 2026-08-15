@@ -30,6 +30,8 @@ the explanation.
 | **thread** | A conversation with participants. Each `(thread, bot)` pair owns exactly one eve session. | [`contracts/thread.ts`](../../packages/contracts/src/thread.ts) |
 | **participant** | One bot in a thread, plus that pair's eve session id and stream cursor. | [`contracts/thread.ts`](../../packages/contracts/src/thread.ts) |
 | **turn** | One user-to-agent cycle, including follow-up work such as checkpointing. | [`src/reactors/turn.ts`](../../apps/server/src/reactors/turn.ts) |
+| **turn id** | Evie's ULID for a turn, minted on dispatch. What `CancelTurn` and the status chip address. | [`contracts/ids.ts`](../../packages/contracts/src/ids.ts) |
+| **provider turn ref** | eve's own name for the same turn (`turn_7`), stamped on every stream event. Never a turn id: the adapter keeps the mapping and nothing above it sees this name. | [`src/provider/turn-origins.ts`](../../apps/server/src/provider/turn-origins.ts) |
 | **routine** | A cron row that dispatches a turn. Carries its own IANA timezone, never the host's. | [`src/scheduler/`](../../apps/server/src/scheduler) |
 | **connection** | An authored file under a bot's `agent/connections/`, scoped `org` or `member`. | [`contracts/commands.ts`](../../packages/contracts/src/commands.ts) |
 | **grant** | One member's authorization of a `member`-scoped connection. | [`contracts/commands.ts`](../../packages/contracts/src/commands.ts) |

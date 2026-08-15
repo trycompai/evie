@@ -19,6 +19,7 @@ import {
 } from "../domain/project.ts"
 import { Hub } from "../gateway/hub.ts"
 import { Scheduler } from "../scheduler/Scheduler.ts"
+import { positionOf, ThreadPositions } from "../store/positions.ts"
 import { reactorLayer, type Commit, type ReactorDefinition } from "./runtime.ts"
 
 /**
@@ -72,14 +73,16 @@ const jsonOr = (text: unknown, fallback: unknown): unknown => {
 const make: Effect.Effect<
   ReactorDefinition<unknown, never>,
   never,
-  SqlClient.SqlClient | EvieConfig | Hub | Scheduler
+  SqlClient.SqlClient | EvieConfig | Hub | Scheduler | ThreadPositions
 > = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const config = yield* EvieConfig
   const hub = yield* Hub
   const scheduler = yield* Scheduler
 
-  const model = emptyReadModel()
+  // Positions come from the process-wide allocator: the eve adapter writes the
+  // same table from its own model, and the two must predict the same number.
+  const model = emptyReadModel(yield* ThreadPositions)
 
   /* --- boot hydration: the tables are the fold up to the cursor -------------- */
 
@@ -175,7 +178,6 @@ const make: Effect.Effect<
     if (hydratedTimelines.has(threadId)) return
     hydratedTimelines.add(threadId)
     const timeline = {
-      nextSeq: 1,
       items: new Map<string, TimelineRow>(),
       toolByCall: new Map<string, string>(),
       inputByRequest: new Map<string, string>(),
@@ -183,18 +185,19 @@ const make: Effect.Effect<
       subagentBySession: new Map<string, string>(),
     }
     model.timelines.set(threadId, timeline)
-    const rows = yield* sql<{ actor_user_id: string | null; body: string }>`
-      select actor_user_id, body from timeline_item
+    const rows = yield* sql<{ actor_user_id: string | null; body: string; seq: number | bigint }>`
+      select actor_user_id, body, seq from timeline_item
       where thread_id = ${threadId} order by seq asc`.pipe(Effect.orDie)
     for (const row of rows) {
       let item: TimelineItem
       try {
-        item = decodeItem(JSON.parse(row.body))
+        // The column is the position, not whatever the body was written with.
+        item = decodeItem({ ...JSON.parse(row.body), seq: Number(row.seq) })
       } catch {
         continue
       }
       timeline.items.set(item.id, { threadId, item, actorUserId: row.actor_user_id })
-      timeline.nextSeq = Math.max(timeline.nextSeq, item.seq + 1)
+      model.positions.observe(threadId, item.seq)
       if (item.kind === "input") timeline.inputByRequest.set(item.requestId, item.id)
     }
   })
@@ -266,32 +269,17 @@ const make: Effect.Effect<
     const item = row.item
     const itemBotId = "botId" in item ? item.botId : null
     const turnId = "turnId" in item ? item.turnId : null
+    const position = positionOf(sql, {
+      id: item.id,
+      threadId: row.threadId,
+      predicted: item.seq,
+    })
     return sql`
       insert into timeline_item (id, thread_id, seq, kind, bot_id, actor_user_id, turn_id, body, at)
-      values (${item.id}, ${row.threadId},
-              /*
-               * The row's position is allocated here, not by the caller.
-               *
-               * Two independent projections write this table -- the reactor,
-               * folding the whole event log, and the adapter, folding a live
-               * eve stream inline for latency -- and each used to hand out
-               * positions from its own in-memory counter. They agree only until
-               * one of them projects an event the other never sees (a user
-               * message, a checkpoint row), after which both eventually issue
-               * the same number to different rows and the unique index rejects
-               * the second. That took the projector loop down entirely.
-               *
-               * An existing row keeps the position it was given; a new one
-               * takes the next free position in its thread. Both are read
-               * inside this statement, under the single writer, so the answer
-               * cannot be stale by the time it is used.
-               */
-              coalesce(
-                (select seq from timeline_item where id = ${item.id}),
-                (select coalesce(max(seq), 0) + 1 from timeline_item where thread_id = ${row.threadId})
-              ),
-              ${item.kind}, ${itemBotId},
-              ${row.actorUserId}, ${turnId}, ${JSON.stringify(encodeItem(item))}, ${item.at})
+      select ${item.id}, ${row.threadId}, position, ${item.kind}, ${itemBotId},
+             ${row.actorUserId}, ${turnId},
+             json_set(${JSON.stringify(encodeItem(item))}, '$.seq', position), ${item.at}
+      from (select ${position} as position) where true
       on conflict (id) do update set
         kind = excluded.kind,
         actor_user_id = excluded.actor_user_id,

@@ -114,7 +114,9 @@ is parked waiting for an answer from you — if the app looks busy, it is busy.
 
 Before a bot does something consequential it asks, right there in the
 conversation rather than in a dialog that steals your place. You can approve or
-say no. Saying no is not an error; the bot carries on.
+say no. Saying no is not an error; the bot carries on. Each choice shows a
+letter — press it to answer from the keyboard once the question has focus;
+typing in the message box never answers a question.
 
 If it is asking about a tool you are happy for it to keep using, tick **Always
 allow … for this session** before you answer. The next time that same tool

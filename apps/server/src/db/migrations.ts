@@ -263,10 +263,33 @@ const checkpointStats = Effect.gen(function* () {
   yield* sql`alter table checkpoint add column deletions integer not null default 0`
 })
 
+/**
+ * Realigns each row's stored `seq` with the position it actually holds.
+ *
+ * A timeline row carries its position twice: the `seq` column the server pages
+ * and resumes by, and a copy inside the JSON body, which is what the client
+ * reads and sorts on. Two projections used to number rows from their own
+ * in-memory counters, and the insert clamped the column to the next free
+ * position without touching the body -- so the two drifted apart, one row per
+ * event that only one of the projections saw.
+ *
+ * Rows then tied with each other in the client's ordering, and a `since`
+ * cursor taken from a body was compared against columns, which made every
+ * reconnect replay rows the client already had. Writers now derive the body
+ * from the column; this brings the rows written before that in line.
+ */
+const timelineSeqBody = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`
+    update timeline_item set body = json_set(body, '$.seq', seq)
+    where json_extract(body, '$.seq') is not seq`
+})
+
 export const migrations = {
   "1_initial": initial,
   "2_input_grant": inputGrant,
   "3_checkpoint_stats": checkpointStats,
+  "4_timeline_seq_body": timelineSeqBody,
 }
 
 /** Runs after Better Auth's own migrations. Requires `SqlClient` -- provide `Db.layer` under it. */

@@ -49,6 +49,10 @@ export interface FleetSnapshot {
 
 const EMPTY_FLEET: FleetSnapshot = { bots: [], threads: [], loaded: false };
 
+/** How long a subscription that ended on its own waits before re-arming. */
+const REARM_MIN_MS = 500;
+const REARM_MAX_MS = 15_000;
+
 export class EvieStore {
 	/** Exposed so command senders and presence can share the one connection. */
 	readonly client: EvieClient;
@@ -61,6 +65,8 @@ export class EvieStore {
 	readonly #fileTrees = new Map<string, FileTree>();
 	/** Unsubscribe per open thread. Presence and idle-stop follow this map's keys. */
 	readonly #subscriptions = new Map<string, () => void>();
+	/** Current backoff per subscription that ended on its own. See `#open`. */
+	readonly #rearmDelays = new Map<string, number>();
 
 	readonly #connectionListeners = new Set<Listener>();
 	readonly #fleetListeners = new Set<Listener>();
@@ -137,22 +143,25 @@ export class EvieStore {
 	/** Starts the one fleet-level stream. Idempotent; safe to call after a reconnect. */
 	watchFleet(): void {
 		if (this.#subscriptions.has("@fleet")) return;
-		const stop = this.client.stream(
-			(client) => client["fleet.subscribe"](),
-			(frame) => {
-				this.#fleet = {
-					bots: mergeBots(this.#fleet.bots, frame.bots),
-					threads: mergeThreads(
-						this.#fleet.threads,
-						frame.threads,
-						frame.removedThreads,
-					),
-					loaded: true,
-				};
-				notify(this.#fleetListeners);
-			},
+		this.#open("@fleet", (onEnd) =>
+			this.client.stream(
+				(client) => client["fleet.subscribe"](),
+				(frame) => {
+					this.#settled("@fleet");
+					this.#fleet = {
+						bots: mergeBots(this.#fleet.bots, frame.bots),
+						threads: mergeThreads(
+							this.#fleet.threads,
+							frame.threads,
+							frame.removedThreads,
+						),
+						loaded: true,
+					};
+					notify(this.#fleetListeners);
+				},
+				onEnd,
+			),
 		);
-		this.#subscriptions.set("@fleet", stop);
 	}
 
 	/* --- threads ---------------------------------------------------------- */
@@ -237,6 +246,7 @@ export class EvieStore {
 	closeThread(threadId: ThreadId): void {
 		this.#subscriptions.get(threadId)?.();
 		this.#subscriptions.delete(threadId);
+		this.#rearmDelays.delete(threadId);
 	}
 
 	/** Threads this client currently has open. Drives `presence.set` and idle-stop. */
@@ -269,23 +279,71 @@ export class EvieStore {
 	#watch(threadId: ThreadId): void {
 		if (this.#subscriptions.has(threadId)) return;
 		const timeline = this.#timeline(threadId);
-		const stop = this.client.stream(
-			(client) =>
-				client["threads.subscribe"]({
-					threadId,
-					since: timeline.snapshot().lastSeq,
-				}),
-			(frame) => {
-				const result = timeline.apply(frame);
-				// Rows first, then the container. A row that re-renders after its
-				// container has already committed produces a visible one-frame stale
-				// paint at the bottom of the list.
-				for (const id of result.changed)
-					notify(this.#itemListeners.get(`${threadId}/${id}`));
-				if (result.threadChanged) notify(this.#threadListeners.get(threadId));
-			},
+		this.#open(threadId, (onEnd) =>
+			this.client.stream(
+				(client) =>
+					client["threads.subscribe"]({
+						threadId,
+						// Read at open, not at #watch: a re-arm resumes from what this
+						// client has actually applied, so the gap is backfilled.
+						since: timeline.snapshot().lastSeq,
+					}),
+				(frame) => {
+					this.#settled(threadId);
+					const result = timeline.apply(frame);
+					// Rows first, then the container. A row that re-renders after its
+					// container has already committed produces a visible one-frame stale
+					// paint at the bottom of the list.
+					for (const id of result.changed)
+						notify(this.#itemListeners.get(`${threadId}/${id}`));
+					if (result.threadChanged) notify(this.#threadListeners.get(threadId));
+				},
+				onEnd,
+			),
 		);
-		this.#subscriptions.set(threadId, stop);
+	}
+
+	/**
+	 * Opens a subscription that puts itself back up.
+	 *
+	 * A stream that ends without being told to is a bug upstream -- a frame this
+	 * build cannot decode, a handler that died -- and the client cannot see
+	 * which. What it can see is that leaving it dead costs the user everything
+	 * that happens next: the thread stops moving mid-turn, nothing says so, and
+	 * reloading the page "fixes" it. So a subscription re-arms from its own
+	 * cursor, exactly as it does after a dropped socket, and backs off to a
+	 * request every 15 seconds so a permanently poisoned stream stays cheap.
+	 * Each re-arm resumes from `lastSeq`, so recovery pulls the missed rows out
+	 * of the read model rather than waiting for the next live delta.
+	 */
+	#open(key: string, subscribe: (onEnd: () => void) => () => void): void {
+		// The slot is claimed before the stream opens: a stream that fails
+		// immediately calls back before `subscribe` has returned.
+		let stop = () => {};
+		this.#subscriptions.set(key, () => stop());
+		stop = subscribe(() => this.#rearm(key));
+	}
+
+	#rearm(key: string): void {
+		const delay = Math.min(
+			REARM_MAX_MS,
+			(this.#rearmDelays.get(key) ?? REARM_MIN_MS / 2) * 2,
+		);
+		this.#rearmDelays.set(key, delay);
+		const timer = setTimeout(() => {
+			// Only if nobody closed or replaced this subscription while we waited.
+			if (this.#subscriptions.get(key) !== cancel) return;
+			this.#subscriptions.delete(key);
+			if (key === "@fleet") this.watchFleet();
+			else this.#watch(key as ThreadId);
+		}, delay);
+		const cancel = () => clearTimeout(timer);
+		this.#subscriptions.set(key, cancel);
+	}
+
+	/** A frame arrived, so whatever went wrong is over. */
+	#settled(key: string): void {
+		this.#rearmDelays.delete(key);
 	}
 
 	#timeline(threadId: ThreadId): Timeline {

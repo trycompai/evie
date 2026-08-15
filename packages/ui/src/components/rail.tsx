@@ -87,7 +87,7 @@ export function RailItem({ icon, label, onSelect, trailing }: RailItemProps) {
       type="button"
       onClick={onSelect}
       className={cn(
-        "flex h-[34px] shrink-0 items-center gap-2.5 rounded-small px-2 text-left",
+        "flex h-[34px] shrink-0 items-center gap-2.5 rounded-small px-2 text-left select-none",
         "hover:bg-raised focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
       )}
     >
@@ -128,7 +128,7 @@ export function AccountRow({ name, image, location, presence = "online", onSelec
       type="button"
       onClick={onSelect}
       className={cn(
-        "flex h-11 shrink-0 items-center gap-2.5 rounded-small px-2 text-left",
+        "flex h-11 shrink-0 items-center gap-2.5 rounded-small px-2 text-left select-none",
         "hover:bg-raised focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
       )}
     >
@@ -153,7 +153,7 @@ export function AccountRow({ name, image, location, presence = "online", onSelec
 export function RailEmpty({ label = "No chats yet" }: { readonly label?: string }) {
   return (
     <div className="flex flex-1 items-center justify-center px-4">
-      <p className="text-compact text-fg-muted">{label}</p>
+      <p className="text-compact text-fg-muted select-none">{label}</p>
     </div>
   )
 }

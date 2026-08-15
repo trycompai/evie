@@ -37,7 +37,7 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className={cn("flex items-center gap-1 rounded-default bg-raised-strong p-[3px]", className)}
+      className={cn("flex items-center gap-1 rounded-default bg-raised-strong p-[3px] select-none", className)}
     >
       {options.map((option) => {
         const selected = option.value === value

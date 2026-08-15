@@ -69,7 +69,7 @@ function SandboxFooter({
     <button
       type="button"
       onClick={onOpenSettings}
-      className="flex shrink-0 flex-col gap-1 border-t border-line-subtle px-4 py-3 text-left hover:bg-raised"
+      className="flex shrink-0 flex-col gap-1 border-t border-line-subtle px-4 py-3 text-left select-none hover:bg-raised"
     >
       <span className="flex items-center gap-2">
         <span aria-hidden className={cn("size-1.5 rounded-full", warn ? "bg-warning" : "bg-success")} />
@@ -111,7 +111,7 @@ export interface FileRowProps {
 }
 
 export function FileRow({ name, kind, depth, expanded, onSelect }: FileRowProps) {
-  const row = "flex h-8 w-full items-center gap-2 rounded-small px-2 text-left"
+  const row = "flex h-8 w-full items-center gap-2 rounded-small px-2 text-left select-none"
   // Indent is data, not design: there is no Tailwind class for "depth 4".
   const indent = { paddingLeft: 8 + depth * 14 }
   const content = (

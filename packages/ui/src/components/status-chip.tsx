@@ -67,7 +67,7 @@ export function StatusChip({ state, className }: { readonly state: ThreadState; 
     <span
       aria-live="polite"
       className={cn(
-        "text-metadata",
+        "text-metadata select-none",
         TONE[rendered.tone],
         rendered.ticking && "evie-thinking",
         className,

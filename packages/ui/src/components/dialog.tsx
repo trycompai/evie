@@ -53,7 +53,7 @@ export function DialogHeader({
 }) {
   return (
     <div className="flex shrink-0 items-start gap-4 px-7 pt-7">
-      <DialogPrimitive.Title className="min-w-0 flex-1 text-section tracking-subsection text-fg">
+      <DialogPrimitive.Title className="min-w-0 flex-1 text-section tracking-subsection text-fg select-none">
         {title}
       </DialogPrimitive.Title>
       {children}

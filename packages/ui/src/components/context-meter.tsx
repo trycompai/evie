@@ -34,7 +34,7 @@ export function ContextMeter({ used, window, lastCompacted, className }: Context
 
   return (
     <div
-      className={cn("flex items-center gap-2", className)}
+      className={cn("flex items-center gap-2 select-none", className)}
       title={`${format(used)} of ${format(window)} tokens${lastCompacted ? ` · compacted ${lastCompacted}` : ""}`}
     >
       <div className="h-1 w-16 overflow-hidden rounded-full bg-raised-strong">

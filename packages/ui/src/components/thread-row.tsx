@@ -53,7 +53,7 @@ export function ThreadRow({
       onClick={onSelect}
       aria-current={active ? "true" : undefined}
       className={cn(
-        "flex w-full items-center gap-3 rounded-default p-2.5 text-left",
+        "flex w-full items-center gap-3 rounded-default p-2.5 text-left select-none",
         "focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
         active ? "bg-raised" : "hover:bg-raised/60",
       )}

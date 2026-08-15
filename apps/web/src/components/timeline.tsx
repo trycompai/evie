@@ -20,6 +20,12 @@ import { useThread, useTimelineItem } from "~/lib/hooks.ts"
  *
  * There is no `useEffect` in this file. Measurement rides on a ref callback --
  * React 19 lets one return a cleanup -- and scroll is an event.
+ *
+ * Deliberately NOT `@evie/ui/components/message-scroller`: its items lean on
+ * `content-visibility: auto`, which skips paint but still mounts every row, so
+ * a 2,000-message thread would parse 2,000 markdown bodies on open. Idea 2
+ * above is the whole reason that does not happen here. Swapping it in is fine
+ * only with a measured pass on a long real thread.
  */
 
 /** Before a row has been measured. Roughly one line of a bubble plus its padding. */

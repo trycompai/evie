@@ -1,6 +1,13 @@
 import { useState } from "react"
 import { cn } from "@evie/ui/lib/utils"
 import { CloseIcon } from "@evie/ui/components/icon"
+import {
+  Questionnaire,
+  QuestionnaireChoice,
+  QuestionnaireChoices,
+  QuestionnaireItem,
+  QuestionnaireTitle,
+} from "@evie/ui/components/questionnaire"
 
 /**
  * The question card: `input.requested` from eve, rendered in the flow.
@@ -10,6 +17,13 @@ import { CloseIcon } from "@evie/ui/components/icon"
  * about. An inline card lets you keep reading, and it stays in the transcript
  * afterwards showing what was chosen -- which a modal cannot do at all.
  *
+ * The question itself is a `Questionnaire` -- the shadcn component every
+ * AI-asked questionnaire in Evie goes through. One item, radio choices, and
+ * real letter shortcuts: the primitive scopes its key handling to the form and
+ * ignores keystrokes born in inputs, so typing in the composer can never answer
+ * an approval. Answering happens on choice selection; there is no separate
+ * submit step to slow a decision the user has already made.
+ *
  * This is table stakes for an agent with shell access, which is why it ships in
  * Phase 1 rather than later.
  */
@@ -17,7 +31,7 @@ import { CloseIcon } from "@evie/ui/components/icon"
 export interface ApprovalOption {
   readonly id: string
   readonly label: string
-  /** The letter in the bordered square. Also the actual keyboard shortcut. */
+  /** Legacy hint; the questionnaire assigns letter shortcuts in option order. */
   readonly hotkey?: string
   readonly tone?: "default" | "primary" | "danger"
 }
@@ -66,58 +80,58 @@ export function ApprovalCard({
 
   return (
     <div className="flex w-[780px] max-w-full flex-col gap-3.5 rounded-bubble bg-raised px-[18px] pt-4 pb-[18px]">
-      <div className="flex items-start gap-3">
-        <p className="min-w-0 flex-1 text-body text-fg">{prompt}</p>
-        {pending && onDismiss && (
-          <button
-            type="button"
-            onClick={onDismiss}
-            aria-label="Dismiss"
-            className="flex h-6 w-5 shrink-0 items-center justify-center text-fg-muted hover:text-fg"
-          >
-            <CloseIcon />
-          </button>
-        )}
-      </div>
-
-      <div className="flex flex-col overflow-hidden rounded-default border border-line-subtle">
-        {options.map((option, i) => {
-          const chosen = answeredWith === option.id
-          return (
-            <button
-              key={option.id}
-              type="button"
-              disabled={!pending}
-              onClick={() => onAnswer?.(option.id, always ? "always" : "once")}
-              className={cn(
-                "flex h-12 shrink-0 items-center gap-3 px-3.5 text-left",
-                i < options.length - 1 && "border-b border-line-subtle",
-                pending && "hover:bg-raised-strong/50 focus-visible:bg-raised-strong/50",
-                "focus-visible:outline-none",
-                // A resolved card dims the roads not taken rather than hiding
-                // them: what was offered is as much of the record as what was
-                // picked.
-                !pending && !chosen && "opacity-40",
-              )}
-            >
-              <span
-                className={cn(
-                  "flex size-[22px] shrink-0 items-center justify-center rounded-small border text-[12px] leading-3",
-                  chosen ? "border-fg bg-fg text-surface" : "border-line text-fg-muted",
-                )}
+      <Questionnaire shortcuts="letters" className="gap-3.5">
+        <QuestionnaireItem name="answer" className="gap-3.5">
+          <div className="flex items-start gap-3">
+            <QuestionnaireTitle className="mb-0! min-w-0 flex-1 text-body font-normal text-fg">
+              {prompt}
+            </QuestionnaireTitle>
+            {pending && onDismiss && (
+              <button
+                type="button"
+                onClick={onDismiss}
+                aria-label="Dismiss"
+                className="flex h-6 w-5 shrink-0 items-center justify-center text-fg-muted hover:text-fg"
               >
-                {option.hotkey ?? String.fromCharCode(65 + i)}
-              </span>
-              <span className={cn("min-w-0 flex-1 text-body leading-[22px]", TONE_TEXT[option.tone ?? "default"])}>
-                {option.label}
-              </span>
-            </button>
-          )
-        })}
-      </div>
+                <CloseIcon />
+              </button>
+            )}
+          </div>
+
+          <QuestionnaireChoices>
+            {options.map((option) => {
+              const chosen = answeredWith === option.id
+              return (
+                <QuestionnaireChoice
+                  key={option.id}
+                  value={option.id}
+                  // Controlled in both states: a pending card shows nothing
+                  // selected (the store's answer, not the click, is what checks
+                  // it), and a resolved card shows the record.
+                  checked={pending ? false : chosen}
+                  disabled={!pending}
+                  onChange={
+                    pending
+                      ? () => onAnswer?.(option.id, always ? "always" : "once")
+                      : undefined
+                  }
+                  className={cn(
+                    // A resolved card dims the roads not taken rather than
+                    // hiding them: what was offered is as much of the record as
+                    // what was picked. The chosen one stays at full strength.
+                    !pending && chosen && "data-disabled:opacity-100",
+                  )}
+                >
+                  <span className={TONE_TEXT[option.tone ?? "default"]}>{option.label}</span>
+                </QuestionnaireChoice>
+              )
+            })}
+          </QuestionnaireChoices>
+        </QuestionnaireItem>
+      </Questionnaire>
 
       {pending && toolName !== undefined && onAnswer && (
-        <label className="flex cursor-pointer items-center gap-2.5 text-metadata text-fg-muted">
+        <label className="flex cursor-pointer items-center gap-2.5 text-metadata text-fg-muted select-none">
           <input
             type="checkbox"
             checked={always}

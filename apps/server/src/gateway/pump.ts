@@ -3,28 +3,15 @@ import type { TimelineItem, TimelineOp } from "@evie/contracts/timeline"
 import { Effect, Layer, PubSub } from "effect"
 import { EveAdapter, type ThreadDelta } from "../provider/EveAdapter.ts"
 import { Hub } from "./hub.ts"
+import { diffItem, type TrackedItem } from "./timeline-diff.ts"
 
 /**
  * The one subscriber of the adapter's delta hub, translating full projected
- * items into wire ops for the gateway's `Hub`. The adapter re-publishes an
- * item with its cumulative text on every eve delta; forwarding that verbatim
- * is the easiest way to make Evie feel slow (03, "Frame budget"), so this pump
- * diffs each item against the last version it forwarded and sends suffixes.
+ * items into wire ops for the gateway's `Hub`. The diff itself lives in
+ * `timeline-diff.ts`; what this file owns is the state it needs -- which rows
+ * are still growing, where each thread's cursor is, and which reasoning block
+ * a live chunk belongs to.
  */
-
-interface TrackedItem {
-  /** Per-part text, text parts only; null slots for non-text parts. */
-  readonly texts: Array<string | null>
-  /** Non-text parts and the rest of the item, encoded, to detect state changes. */
-  readonly rest: string
-}
-
-/** The item minus what `texts` already tracks, for cheap change detection. */
-const restOf = (item: TimelineItem): string =>
-  JSON.stringify(item, (key, value: unknown) => (key === "text" ? undefined : value))
-
-const textsOf = (item: TimelineItem): Array<string | null> =>
-  "parts" in item ? item.parts.map((part) => (part.type === "text" ? part.text : null)) : []
 
 const make = Effect.gen(function* () {
   const adapter = yield* EveAdapter
@@ -44,11 +31,11 @@ const make = Effect.gen(function* () {
     { itemId: string; partIndex: number; chars: number }
   >()
 
-  const opsFor = (threadId: ThreadId, item: TimelineItem, turnId: string | null): Array<TimelineOp> => {
-    const previous = tracked.get(item.id)
-    const texts = textsOf(item)
-    const rest = restOf(item)
-
+  const opsFor = (
+    threadId: ThreadId,
+    item: TimelineItem,
+    turnId: string | null,
+  ): ReadonlyArray<TimelineOp> => {
     if ("parts" in item) {
       const lastReasoning = item.parts.reduce<number>(
         (found, part, index) => (part.type === "reasoning" ? index : found),
@@ -64,40 +51,10 @@ const make = Effect.gen(function* () {
       }
     }
 
-    const appendable = item.kind === "assistant" && !("finishReason" in item && item.finishReason !== undefined)
-    if (previous === undefined) {
-      if (appendable) tracked.set(item.id, { texts, rest })
-      return [{ op: "insert", item }]
-    }
-
-    // Pure text growth becomes suffix ops; anything else replaces the row.
-    const grewOnly =
-      previous.rest === rest &&
-      texts.length === previous.texts.length &&
-      texts.every((text, index) => {
-        const before = previous.texts[index]
-        if (text === null || before === null || before === undefined) return text === before
-        return text.startsWith(before)
-      })
-
-    if (grewOnly) {
-      const ops: Array<TimelineOp> = []
-      texts.forEach((text, index) => {
-        const before = previous.texts[index]
-        if (text !== null && before !== null && before !== undefined && text.length > before.length) {
-          ops.push({ op: "appendText", id: item.id, partIndex: index, chunk: text.slice(before.length) })
-        }
-      })
-      tracked.set(item.id, { texts, rest })
-      return ops
-    }
-
-    if (appendable) {
-      tracked.set(item.id, { texts, rest })
-    } else {
-      tracked.delete(item.id)
-    }
-    return [{ op: "replace", item }]
+    const diff = diffItem(tracked.get(item.id), item)
+    if (diff.tracked === null) tracked.delete(item.id)
+    else tracked.set(item.id, diff.tracked)
+    return diff.ops
   }
 
   const forward = (delta: ThreadDelta): Effect.Effect<void> => {
