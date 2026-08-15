@@ -190,15 +190,17 @@ export function MissingThreadPane({ onLeave }: { readonly onLeave: () => void })
 }
 
 /**
- * The conversation exists, but this client does not have its record: the rail
- * carries the hundred most recent active threads, and archived and snoozed ones
- * are not among them. Says that, rather than claiming it is gone.
+ * The environment confirmed the conversation, but this client cannot draw it:
+ * either the thread is outside the rail's window -- it carries the hundred most
+ * recent active threads, so archived, snoozed and older ones are not in it --
+ * or the bot that owns it has been archived. Two causes, one honest sentence,
+ * and neither of them is "gone".
  */
 export function UnlistedThreadPane({ onLeave }: { readonly onLeave: () => void }) {
   return (
     <Pane
-      title="This conversation isn't in your recent list"
-      body="The rail holds what you have touched lately. Archived and snoozed conversations, and anything older, are not loaded here yet."
+      title="This conversation isn't available here"
+      body="It is outside the rail's recent list, or the bot that owns it has been archived. Everything else is still in the rail."
       action={{ label: "Back to your conversations", onSelect: onLeave }}
     />
   )

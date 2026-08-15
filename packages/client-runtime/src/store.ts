@@ -138,7 +138,7 @@ export class EvieStore {
 			(client) => client["fleet.subscribe"](),
 			(frame) => {
 				this.#fleet = {
-					bots: frame.bots ?? this.#fleet.bots,
+					bots: mergeBots(this.#fleet.bots, frame.bots),
 					threads: mergeThreads(
 						this.#fleet.threads,
 						frame.threads,
@@ -299,6 +299,32 @@ export class EvieStore {
 		this.#subscriptions.clear();
 	}
 }
+
+/**
+ * Bots, merged the same way threads are, and for the same reason: a live frame
+ * carries only what moved (`drainFleet` in the server's hub), so assigning
+ * `frame.bots` over the list deletes every bot that did not change in that
+ * event. Making one bot was enough to make every other bot vanish, which the
+ * UI shows as a conversation it can no longer draw -- the thread is right
+ * there in the rail and its owner is gone.
+ *
+ * Removal rides on `archivedAt` rather than a `removedBots` list, because the
+ * projector publishes the archived row itself and `archivedAt` is exactly the
+ * filter the opening snapshot applies. Archiving a bot therefore takes it out
+ * of the fleet here, the same as it never having been sent.
+ */
+const mergeBots = (
+	current: readonly Bot[],
+	incoming: readonly Bot[] | undefined,
+): readonly Bot[] => {
+	if (!incoming) return current;
+	const byId = new Map(current.map((b) => [b.id as string, b]));
+	for (const bot of incoming) {
+		if (bot.archivedAt === null) byId.set(bot.id, bot);
+		else byId.delete(bot.id);
+	}
+	return [...byId.values()];
+};
 
 /**
  * Fleet frames carry only what moved. Merging by id keeps the rail's rows

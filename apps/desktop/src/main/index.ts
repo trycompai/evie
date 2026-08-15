@@ -1,9 +1,24 @@
-import { app, dialog, ipcMain } from "electron"
+import { app, dialog, ipcMain, nativeImage } from "electron"
 import { CHANNEL, parseDeepLink, type DeepLink, type ServerStatus } from "@evie/shared/desktop-bridge"
 import { parseNotify, showNotification } from "./notifications.ts"
 import { EvieServer } from "./server.ts"
 import { EvieTray } from "./tray.ts"
 import { MainWindow } from "./window.ts"
+import { appIcon } from "./paths.ts"
+
+/*
+ * Before anything else, and before `whenReady`.
+ *
+ * `app.getName()` seeds the notification sender, the About panel, the crash
+ * reporter, and `app.getPath("userData")` -- and that last one is a directory
+ * that gets created the first time anything asks for it, so renaming later
+ * would strand Electron's own state under a folder called "Electron".
+ *
+ * The macOS menu bar title is the one thing this cannot set: AppKit reads it
+ * from the running bundle's Info.plist, so it says "Electron" until the app is
+ * packaged with `productName`, and no API call changes that.
+ */
+app.setName("Evie")
 
 /**
  * The Evie desktop shell.
@@ -187,6 +202,17 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(async () => {
+    // The dock icon comes from the bundle when packaged; running from a
+    // checkout there is no bundle, so it is set explicitly or the dock shows
+    // Electron's own atom.
+    const icon = nativeImage.createFromPath(appIcon)
+    if (!icon.isEmpty()) app.dock?.setIcon(icon)
+    app.setAboutPanelOptions({
+      applicationName: "Evie",
+      applicationVersion: app.getVersion(),
+      credits: "A minimal GUI for eve agents.",
+    })
+
     shell.tray.create()
     try {
       const handle = await shell.server.start()

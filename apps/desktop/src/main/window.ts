@@ -53,6 +53,7 @@ export class MainWindow {
     }
 
     const window = new BrowserWindow({
+      title: "Evie",
       width: 1_100,
       height: 760,
       minWidth: MIN_WIDTH,

@@ -19,6 +19,8 @@ export const serverEntry = join(ASSETS, "server.mjs")
 export const webDist = join(ASSETS, "web")
 export const preloadScript = join(ASSETS, "preload.cjs")
 export const trayIcon = join(ASSETS, "trayTemplate.png")
+/** The mark in its committed colours, for the dock. Packaged builds use `icon.icns`. */
+export const appIcon = join(ASSETS, "icon.png")
 
 /**
  * The data directory.
