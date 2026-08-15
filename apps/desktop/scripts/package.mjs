@@ -50,7 +50,11 @@ if (!existsSync(join(OUT, "main.cjs")) || !existsSync(join(OUT, "server.mjs"))) 
   process.exit(1)
 }
 
-const plist = (file, ...args) => execFileSync("/usr/libexec/PlistBuddy", ["-c", ...args, file])
+// `stdio: pipe` because the `Set`-then-`Add` fallback below makes PlistBuddy
+// print "Does Not Exist" to stderr on every key it is about to create, which
+// reads like a build failure and is not one.
+const plist = (file, ...args) =>
+  execFileSync("/usr/libexec/PlistBuddy", ["-c", ...args, file], { stdio: "pipe" })
 const set = (file, key, value) => {
   // `Set` fails on a key that does not exist yet; `Add` fails on one that does.
   try {

@@ -77,17 +77,45 @@ const makeTurnDispatch = Effect.gen(function* () {
           : Effect.fail(new RuntimeUnavailable({ botId, reason: `eve refused: ${error.reason}` })),
       )
 
+  /**
+   * Which session each (thread, bot) attachment is reading.
+   *
+   * `onlyIfMissing` keeps one ingest fiber per thread and bot, which is the
+   * right invariant -- but on its own it cannot tell "already attached" from
+   * "attached to a session that is gone". When a turn opens a fresh session
+   * (see `TurnReactor`'s retry), the slot was still occupied by the previous
+   * session's fiber, so the new stream was never read: eve ran the turn, and
+   * Evie sat on `step.started` forever with no error and no reply. This map is
+   * what makes the difference observable.
+   */
+  const attachedTo = new Map<string, SessionId>()
+
   const ensureAttached = (threadId: ThreadId, botId: BotId, sessionId: SessionId) =>
-    FiberMap.run(
-      attachments,
-      `${threadId}/${botId}`,
-      Effect.scoped(adapter.attach({ threadId, botId, sessionId })).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("bridges: attach ended", { threadId, botId }, cause),
+    Effect.gen(function* () {
+      const key = `${threadId}/${botId}`
+      if (attachedTo.get(key) !== sessionId) {
+        // Interrupts the fiber reading the old session before claiming the slot.
+        yield* FiberMap.remove(attachments, key)
+        attachedTo.set(key, sessionId)
+      }
+      yield* FiberMap.run(
+        attachments,
+        key,
+        Effect.scoped(adapter.attach({ threadId, botId, sessionId })).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("bridges: attach ended", { threadId, botId }, cause),
+          ),
+          // Leaving a stale entry would make the next dispatch think it is
+          // still attached to a session that has finished.
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (attachedTo.get(key) === sessionId) attachedTo.delete(key)
+            }),
+          ),
         ),
-      ),
-      { onlyIfMissing: true },
-    )
+        { onlyIfMissing: true },
+      )
+    })
 
   return {
     dispatchTurn: Effect.fn("bridges.dispatchTurn")(function* (input) {

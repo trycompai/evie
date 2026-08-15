@@ -127,6 +127,15 @@ export const dispatchCommit = (
     )
   })
 
+/**
+ * eve stream events after which a session cannot be used again.
+ *
+ * A turn failing is ordinary and the session survives it; the *session* failing
+ * or ending is not, and the handle has to be dropped or the thread never speaks
+ * again.
+ */
+const TERMINAL_SESSION = new Set(["session.failed", "session.ended", "session.aborted"])
+
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const store = yield* EventStore
@@ -171,16 +180,41 @@ const make = Effect.gen(function* () {
         const turnId = deriveUlid(event.id, botId, "turn") as TurnId
         const known = (rows.find((row) => row.bot_id === botId)?.eve_session_id ??
           null) as SessionId | null
-        const { sessionId } = yield* dispatch.dispatchTurn({
-          botId,
-          threadId: data.threadId,
-          sessionId: known,
-          turnId,
-          actingAs,
-          message: data.text,
-          // A new message replaces the in-flight turn, which is what a chat UI implies.
-          turnPolicy: "steer",
-        })
+        const send = (sessionId: SessionId | null) =>
+          dispatch.dispatchTurn({
+            botId,
+            threadId: data.threadId,
+            sessionId,
+            turnId,
+            actingAs,
+            message: data.text,
+            // A new message replaces the in-flight turn, which is what a chat UI implies.
+            turnPolicy: "steer",
+          })
+
+        /*
+         * A session eve will not accept is retried once as a fresh one.
+         *
+         * `handleSessionEnded` drops the handle when eve tells us a session
+         * ended, but that only covers sessions we watched die: a runtime that
+         * was restarted, or a row written before that rule existed, leaves a
+         * handle eve has never heard of. Without this the thread is mute
+         * forever and silently -- the refusal is a reactor-channel error the
+         * user never sees. Retrying with a new session is what their message
+         * plainly meant, and a fresh session is exactly what they would get by
+         * starting a new thread.
+         */
+        const { sessionId } = yield* (known === null
+          ? send(null)
+          : send(known).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("TurnReactor: session refused; opening a fresh one", {
+                  threadId: data.threadId,
+                  botId,
+                  reason: error.reason,
+                }).pipe(Effect.andThen(send(null))),
+              ),
+            ))
         commits.push(
           dispatchCommit(sql, store, {
             triggerEventId: event.id,
@@ -409,6 +443,31 @@ const make = Effect.gen(function* () {
       return commit
     })
 
+  /**
+   * Forgets a session eve has ended for good.
+   *
+   * `thread_participant.eve_session_id` is the thread's handle on a live eve
+   * session, and nothing used to clear it. So the first terminal failure --
+   * a model call with no credentials, say -- left the row pointing at a dead
+   * session forever: every later message dispatched into it, eve refused, the
+   * refusal was swallowed by the reactor channel, and the thread went silently
+   * mute. No error, no reply, nothing to see. Clearing it means the next
+   * message opens a fresh session, which is what the user's next message
+   * plainly means.
+   */
+  const handleSessionEnded = (data: Extract<StoredEvent["data"], { _tag: "EveMirrored" }>) =>
+    Effect.gen(function* () {
+      yield* sql`
+        update thread_participant set eve_session_id = null
+        where thread_id = ${data.threadId}
+          and bot_id = ${data.botId}
+          and eve_session_id = ${data.sessionId}`
+      yield* Effect.logInfo("TurnReactor: session ended; thread will open a fresh one", {
+        threadId: data.threadId,
+        eveType: data.eveType,
+      })
+    })
+
   return {
     name: "turn" as const,
     handle: (
@@ -427,9 +486,9 @@ const make = Effect.gen(function* () {
         case "SessionClearRequested":
           return handleSession(data.threadId, data.botId, dispatch.clearSession)
         case "EveMirrored":
-          return data.eveType === "input.requested"
-            ? handleInputRequested(event, data)
-            : handleSettle(event, data)
+          if (data.eveType === "input.requested") return handleInputRequested(event, data)
+          if (TERMINAL_SESSION.has(data.eveType)) return handleSessionEnded(data)
+          return handleSettle(event, data)
         default:
           return Effect.void
       }

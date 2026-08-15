@@ -5,6 +5,7 @@ import { GatewayAuthLive } from "./auth/gateway-auth.ts"
 import { EvieConfig } from "./config.ts"
 import { Db } from "./db/Db.ts"
 import { MigrationsLive } from "./db/migrations.ts"
+import { HomeLockLive } from "./home-lock.ts"
 import { ParentWatchdogLive } from "./parent-watchdog.ts"
 import { GatewayLive } from "./gateway/Gateway.ts"
 import { Hub } from "./gateway/hub.ts"
@@ -42,8 +43,14 @@ import { EventStore } from "./store/EventStore.ts"
 
 const ConfigLive = EvieConfig.layer
 
+/**
+ * Claimed before the database is opened, so a second server on one home fails
+ * with an explanation instead of racing it for bot runtimes.
+ */
+const HomeLockedLive = HomeLockLive.pipe(Layer.provide(ConfigLive))
+
 /** `Db.make` creates the home dirs, so "home dirs before everything" rides here. */
-const DbLive = Db.layer.pipe(Layer.provide(ConfigLive))
+const DbLive = Db.layer.pipe(Layer.provide(ConfigLive), Layer.provide(HomeLockedLive))
 
 /** Better Auth's `getMigrations()` runs during this layer's construction. */
 const AuthLive = Auth.layer.pipe(Layer.provide([DbLive, ConfigLive]))

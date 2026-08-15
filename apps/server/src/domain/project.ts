@@ -1,6 +1,6 @@
 import type { BotHealth, SandboxConfig } from "@evie/contracts/bot"
 import type { StoredEvent } from "@evie/contracts/events"
-import type { BlobId, BotId, SessionId, ThreadId, TurnId } from "@evie/contracts/ids"
+import type { BlobId, BotId, SessionId, ThreadId } from "@evie/contracts/ids"
 import type {
   AuthState,
   FinishReason,
@@ -633,7 +633,22 @@ const applyMirror = (
       // The visible message id IS the (turnId, stepIndex, sequence) triple, so
       // a retried step's re-emission lands on the same row: last writer wins.
       const id = `${turnId}/${stepIndex}/${sequence}`
-      const text = str(payload["text"]) ?? ""
+      /*
+       * eve names the reply differently on each event, and neither name is
+       * `text`: an append carries `messageSoFar` (cumulative, which is why the
+       * adapter can drop all but the last one in a flush window) alongside the
+       * incremental `messageDelta`, and a completion carries `message`.
+       * Reading `text` produced a correctly-shaped assistant row with an empty
+       * body -- a reply the user could not see, for a turn they were billed
+       * for. The cumulative field is always preferred; `messageDelta` is a last
+       * resort so a delta-only shape still shows something.
+       */
+      const text =
+        str(payload["message"]) ??
+        str(payload["messageSoFar"]) ??
+        str(payload["text"]) ??
+        str(payload["messageDelta"]) ??
+        ""
       changes.push(
         putItem(model, threadId, event.actorUserId, {
           kind: "assistant",
@@ -641,7 +656,7 @@ const applyMirror = (
           threadId,
           at: event.at,
           botId: data.botId,
-          turnId: turnId as TurnId,
+          turnId,
           parts: [{ type: "text", text }],
           ...(data.eveType === "message.completed"
             ? { finishReason: finishReason(payload["finishReason"]) }
@@ -663,7 +678,7 @@ const applyMirror = (
           threadId,
           at: event.at,
           botId: data.botId,
-          turnId: turnId as TurnId,
+          turnId,
           parts: [{ type: "reasoning", tokens }],
         }),
       )
@@ -688,7 +703,7 @@ const applyMirror = (
             threadId,
             at: event.at,
             botId: data.botId,
-            turnId: turnId as TurnId,
+            turnId,
             callId,
             name: str(c["toolName"]) ?? str(c["name"]) ?? "tool",
             state: "pending",

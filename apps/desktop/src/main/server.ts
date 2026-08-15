@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
+import { join } from "node:path"
+import { readServerClaim } from "@evie/server/home-lock"
 import { evieHome, serverEntry, webDist } from "./paths.ts"
 import type { ServerStatus } from "@evie/shared/desktop-bridge"
 
@@ -36,6 +38,20 @@ export interface ServerHandle {
   readonly claimUrl: string
 }
 
+/**
+ * Where the window loads the UI from, when that is not the server itself.
+ *
+ * A server started by `turbo dev` sets no `EVIE_WEB_DIST`, so it serves the API
+ * and no app -- adopting it and loading its origin would open a blank window.
+ * The Vite dev server has the UI *and* proxies `/api`, `/blob` and `/rpc` to
+ * that same server, so in dev the window points there and gets hot reload into
+ * the bargain. Same-origin either way, which is what the session cookie needs.
+ */
+const adoptedWebOrigin = (): string | null => {
+  const url = process.env["EVIE_ADOPT_WEB_URL"]
+  return url !== undefined && url.length > 0 ? url.replace(/\/$/, "") : null
+}
+
 export interface ServerOptions {
   readonly onStatus: (status: ServerStatus) => void
   readonly onNotify: (line: string) => void
@@ -60,7 +76,7 @@ export class EvieServer {
    * window that outlives its cookie has no way back in short of killing the
    * server and every agent running under it.
    */
-  readonly launcherToken = randomBytes(32).toString("base64url")
+  launcherToken = randomBytes(32).toString("base64url")
 
   constructor(private readonly options: ServerOptions) {
     this.#ready = deferred()
@@ -70,10 +86,77 @@ export class EvieServer {
     return this.#handle
   }
 
-  /** Resolves when the server prints its ready line; rejects if it dies first. */
-  start(): Promise<ServerHandle> {
+  /**
+   * True when this shell adopted a server it did not start.
+   *
+   * Quitting must then leave it running: it belongs to whoever did start it,
+   * and killing another process's server on the way out is the rudest possible
+   * interpretation of "close the window".
+   */
+  #adopted = false
+  /** Where the launcher API lives. Differs from the window's origin only when adopting a dev server. */
+  #apiOrigin: string | null = null
+
+  /**
+   * Resolves when a server is serving this home -- adopted or spawned.
+   *
+   * Adoption is what lets the app open beside `turbo dev` instead of competing
+   * with it. Two servers on one home both spawn `eve dev` in the same bot
+   * directory; eve dedupes to one runtime and the server that did not start it
+   * gets 401 on every turn. So if the home is already served, join it.
+   */
+  async start(): Promise<ServerHandle> {
+    const existing = await this.#adopt()
+    if (existing !== null) return existing
     this.#spawn()
     return this.#ready.promise
+  }
+
+  /**
+   * The server already serving this home, if it is alive and answering.
+   *
+   * `evie.lock` carries the URL and the launcher token, so adoption needs no
+   * port guessing and no second auth path -- the same `/internal/launcher/claim`
+   * a spawned server would have used.
+   */
+  async #adopt(): Promise<ServerHandle | null> {
+    /*
+     * `turbo dev` starts this app and the server at the same moment, so a
+     * single look at the lock usually loses the race. The dev script sets a
+     * wait; a standalone launch does not, and starts its own server at once
+     * rather than pausing for one that is never coming.
+     */
+    const budget = Number(process.env["EVIE_ADOPT_WAIT_MS"] ?? 0)
+    const deadline = Date.now() + (Number.isFinite(budget) ? budget : 0)
+    let claim = readServerClaim(join(evieHome().path, "userdata"))
+    while (claim === null && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      claim = readServerClaim(join(evieHome().path, "userdata"))
+    }
+    if (claim === null) return null
+    const healthy = await fetch(`${claim.url}/health`)
+      .then((response) => response.ok)
+      .catch(() => false)
+    // A claim whose server does not answer is a crash we should replace, not join.
+    if (!healthy) return null
+
+    this.#adopted = true
+    this.launcherToken = claim.launcherToken
+    this.#apiOrigin = claim.url
+    const origin = adoptedWebOrigin() ?? claim.url
+    // Provisional, so `freshClaimUrl` below has an origin to build against.
+    this.#handle = { origin, claimUrl: origin }
+    /*
+     * An adopted server printed its own claim URL long before this window
+     * existed, and that token is single-use and 60 seconds old at best. Mint a
+     * fresh one now, or the first load arrives unauthenticated and the window
+     * opens on the sign-in screen for no reason the user can see.
+     */
+    const handle: ServerHandle = { origin, claimUrl: (await this.freshClaimUrl()) ?? origin }
+    this.#handle = handle
+    this.options.onLog(`adopted the server already serving this home (pid ${claim.pid})`)
+    this.options.onStatus({ kind: "ready", origin: handle.origin })
+    return handle
   }
 
   /**
@@ -84,14 +167,20 @@ export class EvieServer {
   async freshClaimUrl(): Promise<string | null> {
     const handle = this.#handle
     if (handle === null) return null
+    const api = this.#apiOrigin ?? handle.origin
     try {
-      const response = await fetch(`${handle.origin}/internal/launcher/claim`, {
+      const response = await fetch(`${api}/internal/launcher/claim`, {
         method: "POST",
         headers: { authorization: `Bearer ${this.launcherToken}` },
       })
       if (!response.ok) return null
       const body = (await response.json()) as { url?: unknown }
-      return typeof body.url === "string" ? body.url : null
+      if (typeof body.url !== "string") return null
+      // The server names itself in that URL. When the window lives on a dev
+      // origin, carry the token across rather than sending it to the wrong host.
+      const token = new URL(body.url).searchParams.get("claim")
+      if (token === null) return body.url
+      return `${handle.origin}/?claim=${encodeURIComponent(token)}`
     } catch {
       return null
     }
@@ -108,6 +197,7 @@ export class EvieServer {
    */
   stopNow(): void {
     this.#stopping = true
+    if (this.#adopted) return
     const pid = this.#pid
     if (pid === null) return
     try {
@@ -123,6 +213,7 @@ export class EvieServer {
    */
   async stop(): Promise<void> {
     this.#stopping = true
+    if (this.#adopted) return
     const child = this.#child
     const pid = this.#pid
     this.#child = null

@@ -14,11 +14,11 @@
       "name": "@evie/desktop",
       "version": "0.0.0",
       "dependencies": {
+        "@evie/server": "workspace:*",
         "@evie/shared": "workspace:*",
       },
       "devDependencies": {
         "@evie/eslint-config": "workspace:*",
-        "@evie/server": "workspace:*",
         "@evie/typescript-config": "workspace:*",
         "@evie/web": "workspace:*",
         "@types/node": "^24.13.3",

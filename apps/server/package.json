@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./main": "./src/main.ts",
-    "./layer": "./src/layer.ts"
+    "./layer": "./src/layer.ts",
+    "./home-lock": "./src/home-lock.ts"
   },
   "bin": {
     "evie": "./dist/evie.mjs"

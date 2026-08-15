@@ -60,15 +60,13 @@ export default defineConfig({
       "/api": { target: apiOrigin, changeOrigin: true },
       "/blob": { target: apiOrigin, changeOrigin: true },
       /*
-       * KNOWN BROKEN on Vite 8.2. This entry is correct by the documented API
-       * and the upgrade never arrives: Vite's proxy `upgrade` handler does not
-       * fire for `/rpc`, so the app connects to nothing and sits on
-       * "connecting" forever with no error in either log.
+       * This works. It was recorded as broken on Vite 8.2 for a while, and the
+       * measurement behind that was wrong: the upgrade was being tested against
+       * `127.0.0.1` while the dev server binds `[::1]`, so the connection was
+       * refused before Vite ever saw it. A `curl` upgrade to
+       * `http://localhost:3000/rpc` answers `101 Switching Protocols`.
        *
-       * Until that is fixed upstream, the working loop is the one in
-       * README.md: build the web bundle and let the server serve it from one
-       * origin. The dev server is still right for UI work via the screen
-       * gallery, which needs no server at all.
+       * Use `localhost`, not `127.0.0.1` -- that is the whole of it.
        */
       "/rpc": { target: apiOrigin, ws: true, changeOrigin: true },
     },

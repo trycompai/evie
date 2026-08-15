@@ -21,7 +21,7 @@ onto it, and lives in the menu bar. You need Bun; it brings its own Node.
 
 ```sh
 bun i
-cd apps/desktop && bun run dev
+cd apps/desktop && bun run app
 ```
 
 Closing the window does not stop Evie — that is the point of a local agent app.

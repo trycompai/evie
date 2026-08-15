@@ -79,10 +79,20 @@ export function Composer({
    */
   const canStop = streaming && onStop !== undefined
 
-  const trailing = canStop
-    ? { label: "Stop", icon: <StopIcon />, action: onStop }
-    : hasText
-      ? { label: "Send", icon: <ArrowUpIcon />, action: onSend }
+  /*
+   * Text wins over Stop, which is what the paragraph above always meant and
+   * what the precedence used to get backwards. With something typed, the button
+   * sends it; Stop is what the button offers when there is nothing to send and
+   * a turn is running.
+   *
+   * The inverted order was invisible on the keyboard -- Enter calls `onSend`
+   * whether or not a turn is running -- so the composer sent fine and the
+   * button appeared dead, which is the hardest kind of bug to report.
+   */
+  const trailing = hasText
+    ? { label: "Send", icon: <ArrowUpIcon />, action: onSend }
+    : canStop
+      ? { label: "Stop", icon: <StopIcon />, action: onStop }
       : { label: "Dictate", icon: <MicIcon />, action: onDictate }
 
   return (

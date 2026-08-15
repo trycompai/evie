@@ -48,20 +48,73 @@ Observed against a running server writing to a worktree-local `.evie`:
 | The desktop app works | Driven over CDP against a real server: preload bridge exposed with no `ipcRenderer`/`require`/`process` leaking to the page; zoom resizes the window and back; minimize hides it; close hides while shell and server keep running; `evie://thread/<id>` from a second launch forwards through the single-instance lock and selects the thread; SIGKILL of the shell leaves no orphaned server. |
 | The rail loads on a cold start | The window opens onto a populated fleet read from disk, not an empty rail. |
 
-**What has never been proven: an actual agent turn.** No eve runtime has been
-observed answering. There is no integration test and no recorded-stream fixture,
-so `EveAdapter` — 868 lines and the most intricate module in the repo — is
-unexercised. Everything downstream of "the bot replied" is theory.
+**A bot now answers.** Observed end to end: a message typed into the real
+composer, dispatched, answered by `anthropic/claude-opus-4.8` through a stored
+gateway key, and rendered in the timeline. Getting there took six defects, and
+their shape is the lesson — every one was silent, and each sat *behind* the one
+before it, so no single fix ever produced a visible improvement:
+
+1. **A terminally failed session was never forgotten.** The first failure left
+   `thread_participant.eve_session_id` pointing at a dead session; every later
+   message dispatched into it, eve refused, and the reactor channel swallowed
+   the refusal. No error, no reply, permanently mute.
+2. **A new session was never attached to.** `ensureAttached` keyed its fiber by
+   `(thread, bot)` with `onlyIfMissing`, which cannot tell "already attached"
+   from "attached to a session that is gone". eve ran the turn; nobody read it.
+3. **`TimelineItem.turnId` was typed as `TurnId`.** The value is the *provider's*
+   turn reference (`turn_7`), not Evie's minted ULID. The projector cast to it,
+   so it type-checked, and `Schema.encodeSync` **threw** at persist time — a
+   defect, not a failure, which rolled back the ingest transaction and left the
+   stream cursor unadvanced. Every attach re-read the same events and threw
+   again. Eight replies sat in that backlog and appeared at once when it lifted.
+4. **The projector read `payload.text`.** eve sends `message` on a completion
+   and `messageSoFar` on a delta. Even with the schema fixed, every reply would
+   have rendered as an empty bubble.
+5. **The composer's Send button was a Stop button.** Its trailing action put
+   `canStop` ahead of `hasText`, so with a turn running and a message typed the
+   button cancelled instead of sending — while Enter sent normally, because
+   `handleKeyDown` never consults `streaming`. Combined with #1–#4, which left
+   every turn permanently "running", the button was *always* Stop. The
+   component's own comment already described the intended rule ("a message sent
+   mid-turn cancels the in-flight one and starts a replacement — that is what a
+   chat UI implies and what the button does"); only the precedence disagreed.
+   Worth noting how it presents: works from the keyboard, dead to the mouse,
+   which reads as "my messages don't send" and as "works for me".
+6. **Two servers, one home.** Making the desktop app's launcher a `dev` script
+   meant `turbo dev` started it *and* the standalone server against the same
+   `EVIE_HOME`. Both supervisors spawn `eve dev` in the same bot directory, eve
+   dedupes to one runtime, and the server that did not start it gets 401 on
+   every turn — forever, for exactly the bots the other one warmed. Decision 015
+   ("exactly one SQLite writer per process") had only ever been enforced within
+   a process; nothing stopped a second one. `home-lock.ts` now claims the home
+   with a pid file: a live holder is refused with a message naming it, a dead
+   one is taken over silently so a crash needs no cleanup.
+
+   Excluding the app from `turbo dev` fixed the conflict and broke the thing
+   people actually wanted, which was one command. So the lock became discovery
+   as well as exclusion: it carries the server's URL and launcher token, and a
+   shell that finds a home already served **adopts** that server instead of
+   starting a rival — pointing its window at Vite on `localhost:3000`, which has
+   the UI the API-only dev server does not, plus hot reload. It mints a fresh
+   claim on adoption (the printed one is single-use and long expired) and never
+   signals a server it did not start. `bun run app` remains the standalone
+   launcher. Mutual exclusion and "who is already here" are the same question,
+   and answering both from one file means they cannot disagree.
+
+The through-line: a cast that lies (`as TurnId`) and a field name assumed rather
+than read. Both type-check. `EveAdapter` still has no recorded-stream fixture,
+so ingestion remains the least-tested code in the repo — `assistant-text.test.ts`
+now pins the two halves that failed silently.
 
 ## The critical path to a working product
 
 These four, in order, are what stand between "boots" and "a bot answers you".
 Each is small. Together they are the difference between a demo and a product.
 
-**#2 is fixed** — see below. **#1 is now the only thing between a running Evie
-and a useful one**, and it is no longer theoretical: the desktop app runs, a
-thread opens, a message sends, and the bot answers *"AI Gateway received no
-credentials."*
+**#1 and #2 are both fixed.** A bot answers today. What remains on #1 is the
+last mile of the *product* rather than the plumbing: there is still no settings
+screen, so the only way to get a key in is the one used to prove this worked —
+storing it through `Secrets` directly.
 
 ### 1. The API key never reaches a runtime
 
@@ -291,7 +344,7 @@ Distinct from "not built yet" — these are wrong, not absent:
 | **`reconnecting` is never emitted.** The status exists, the rail renders it, and no server code produces it — so the specified "UI shows *reconnecting*, not an error" does not happen. | `contracts/thread.ts` vs server |
 | **`CredentialProblem` is never constructed.** Defined and round-trip-tested; no code path raises it, so the specified "typed error and a *Fix in Settings* action" cannot occur. | `contracts/errors.ts` |
 | **Connect-apps selections are discarded.** The onboarding picks are held in the URL now, but still no `ConnectService` is ever sent. | `app.tsx` |
-| **`vite.config.ts` contradicts `README.md`** about whether the Vite WS proxy works. Both are in the repo; the README is right. Moot for desktop, which serves the built dist from the server. | `apps/web/vite.config.ts` |
+| ~~**`vite.config.ts` contradicts `README.md`** about the Vite WS proxy.~~ **Both were wrong, and so was this line.** The proxy works: an upgrade to `http://localhost:3000/rpc` answers `101`. The original measurement used `127.0.0.1` while the dev server binds `[::1]`, so it was refused before Vite saw it. `turbo dev` gives a real session — on `localhost`. | `apps/web/vite.config.ts` |
 | **`docs/user/getting-started.md` still has gaps** — Settings → Models, device pairing, and remote access do not exist. The desktop app now does. | `docs/user/` |
 
 ## The quality gate is thinner than it looks

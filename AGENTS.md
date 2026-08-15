@@ -146,9 +146,13 @@ Everything in this workspace is scoped `@evie/*`.
 
 - `apps/desktop` - `@evie/desktop`. The Electron shell: tray-resident, owns the server as a child
   process, bundles it and the web client with esbuild. macOS only so far, no installer. From that
-  directory, `bun run dev` — which builds and launches `out/Evie.app`, a real bundle, because the
+  directory, `bun run app` — which builds and launches `out/Evie.app`, a real bundle, because the
   app's name in the dock and menu bar comes from the bundle and from nowhere else. A checkout build
-  is stamped so it opens the worktree's `.evie`, never `~/.evie`. See `specs/07-state-of-the-build.md`.
+  is stamped so it opens the worktree's `.evie`, never `~/.evie`. `turbo dev` opens it too and does
+  NOT start a second server: it adopts the one already serving the home (found via
+  `userdata/evie.lock`) and points the window at Vite on `localhost:3000` for hot reload. Two
+  servers on one home fight over bot runtimes and the loser 401s forever, which is why the lock
+  exists and why a real second server refuses to start. See `specs/07-state-of-the-build.md`.
 
 **Every `@evie/*` package is just-in-time**: it exports raw `.ts`/`.tsx` and emits nothing. Two
 consequences neither of which is discoverable from a stack trace — an app that imports one must list

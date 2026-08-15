@@ -11,16 +11,18 @@
     "bundle": "node scripts/build.mjs",
     "build": "bun run icons && bun run bundle",
     "package": "bun run build && node scripts/package.mjs",
-    "dev": "bun run package && EVIE_HOME=../../.evie ./out/Evie.app/Contents/MacOS/Evie",
+    "//dev": "Adopts the server `turbo dev` starts rather than launching a rival: two servers on one EVIE_HOME fight over the same bot runtimes and the loser 401s forever. `app` is the standalone launcher, which starts its own server.",
+    "dev": "bun run package && EVIE_ADOPT_WAIT_MS=30000 EVIE_HOME=../../.evie EVIE_ADOPT_WEB_URL=http://localhost:3000 ./out/Evie.app/Contents/MacOS/Evie",
+    "app": "bun run package && EVIE_HOME=../../.evie ./out/Evie.app/Contents/MacOS/Evie",
     "lint": "eslint",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@evie/shared": "workspace:*"
+    "@evie/shared": "workspace:*",
+    "@evie/server": "workspace:*"
   },
   "devDependencies": {
     "@evie/eslint-config": "workspace:*",
-    "@evie/server": "workspace:*",
     "@evie/typescript-config": "workspace:*",
     "@evie/web": "workspace:*",
     "@types/node": "^24.13.3",

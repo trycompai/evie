@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { BlobId, BotId, Millis, SessionId, ThreadId, TurnId, UserId } from "./ids.ts"
+import { BlobId, BotId, Millis, SessionId, ThreadId, UserId } from "./ids.ts"
 import { ThreadStatus } from "./thread.ts"
 
 /**
@@ -99,11 +99,27 @@ export const UserItem = Schema.Struct({
   parts: Schema.Array(Part),
 })
 
+/**
+ * The provider's own turn reference, as it appears on the provider's stream.
+ *
+ * NOT `TurnId`. Evie's `TurnId` is a ULID it mints when it dispatches a turn;
+ * eve numbers its turns `turn_1`, `turn_2`, and the two are different
+ * identifiers for related things. Typing this as `TurnId` type-checked -- the
+ * projector cast to it -- and then threw at the schema boundary on every
+ * assistant message, which rolled back the ingest transaction, left the stream
+ * cursor unadvanced, and silently discarded every reply the bot ever produced.
+ *
+ * It is only ever compared against other provider ids (grouping a turn's rows,
+ * sweeping them on `turn.cancelled`), so an opaque string is the honest type.
+ */
+export const ProviderTurnRef = Schema.String
+export type ProviderTurnRef = typeof ProviderTurnRef.Type
+
 export const AssistantItem = Schema.Struct({
   kind: Schema.tag("assistant"),
   ...base,
   botId: BotId,
-  turnId: TurnId,
+  turnId: ProviderTurnRef,
   parts: Schema.Array(Part),
   /** Distinguishes narration from a terminal reply. Absent while streaming. */
   finishReason: Schema.optional(FinishReason),
@@ -113,7 +129,7 @@ export const ToolItem = Schema.Struct({
   kind: Schema.tag("tool"),
   ...base,
   botId: BotId,
-  turnId: TurnId,
+  turnId: ProviderTurnRef,
   callId: Schema.String,
   name: Schema.String,
   state: ToolState,

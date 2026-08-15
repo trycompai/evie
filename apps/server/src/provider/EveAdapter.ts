@@ -555,7 +555,29 @@ const make = Effect.gen(function* () {
     const turnId = "turnId" in item ? item.turnId : null
     return sql`
       insert into timeline_item (id, thread_id, seq, kind, bot_id, actor_user_id, turn_id, body, at)
-      values (${item.id}, ${row.threadId}, ${item.seq}, ${item.kind}, ${botId},
+      values (${item.id}, ${row.threadId},
+              /*
+               * The row's position is allocated here, not by the caller.
+               *
+               * Two independent projections write this table -- the reactor,
+               * folding the whole event log, and the adapter, folding a live
+               * eve stream inline for latency -- and each used to hand out
+               * positions from its own in-memory counter. They agree only until
+               * one of them projects an event the other never sees (a user
+               * message, a checkpoint row), after which both eventually issue
+               * the same number to different rows and the unique index rejects
+               * the second. That took the projector loop down entirely.
+               *
+               * An existing row keeps the position it was given; a new one
+               * takes the next free position in its thread. Both are read
+               * inside this statement, under the single writer, so the answer
+               * cannot be stale by the time it is used.
+               */
+              coalesce(
+                (select seq from timeline_item where id = ${item.id}),
+                (select coalesce(max(seq), 0) + 1 from timeline_item where thread_id = ${row.threadId})
+              ),
+              ${item.kind}, ${botId},
               ${row.actorUserId}, ${turnId}, ${JSON.stringify(encodeItem(item))}, ${item.at})
       on conflict (id) do update set
         kind = excluded.kind,

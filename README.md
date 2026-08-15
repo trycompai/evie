@@ -48,7 +48,7 @@ to install, and it keeps its data in this repository's `.evie`, never `~/.evie`:
 
 ```sh
 bun i
-cd apps/desktop && bun run dev
+cd apps/desktop && bun run app
 ```
 
 That builds `out/Evie.app` and launches it. It is a real bundle rather than a
@@ -59,6 +59,18 @@ repository's `.evie`, never `~/.evie`, and refuses to do otherwise.
 
 It is tray-resident: closing the window leaves the server running, and **Quit
 Evie** in the menu bar is what stops it. macOS only, unsigned, no installer yet.
+
+`turbo dev` opens it too, and does not start a second server. Two servers on one
+`EVIE_HOME` fight over the same bot runtimes and the loser gets 401 on every
+turn, so under `turbo dev` the app **adopts** the server already serving the
+home — it finds it through `userdata/evie.lock`, which carries the URL and a
+launcher token — and points its window at the Vite dev server on
+`localhost:3000`, so you get hot reload in the real shell. Quitting then leaves
+that server alone; it belongs to whoever started it.
+
+`bun run app` is the standalone launcher, which starts its own server. Either
+way, a genuinely second server now refuses to start and names the one already
+holding the home.
 
 To run the server and a browser instead — the server serves the client:
 
@@ -87,13 +99,17 @@ directory.
 
 ### Working on the UI
 
-`turbo dev --filter=@evie/web` gives Vite with HMR on port 3000. Note that Vite
-8's WebSocket proxy does not forward the RPC upgrade, so the app cannot reach a
-server through it — use the flow above for anything that talks to the server,
-and use the dev server for the screen gallery at
-`http://localhost:3000/gallery.html`, which renders every screen from fixtures
-with no server at all. That gallery is how a change gets checked against the
-Paper file; see [`docs/internals/design-system.md`](./docs/internals/design-system.md).
+`turbo dev` gives Vite with HMR on port 3000, alongside the server on 3001 and
+the desktop app. **Open `http://localhost:3000`, not `127.0.0.1:3000`** — the
+dev server binds `[::1]`, and the RPC upgrade proxies correctly through the
+hostname and not through the IPv4 literal. This was recorded here as "Vite 8's
+WebSocket proxy does not forward the RPC upgrade" for a while; that was a
+measurement taken against the wrong address, and it is not true.
+
+For UI work with no server at all, the screen gallery is at
+`http://localhost:3000/gallery.html`, which renders every screen from fixtures.
+That gallery is how a change gets checked against the Paper file; see
+[`docs/internals/design-system.md`](./docs/internals/design-system.md).
 
 ## Working in this repo
 
