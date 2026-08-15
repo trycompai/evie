@@ -141,6 +141,22 @@ export function ArrowUpIcon(props: IconProps) {
   )
 }
 
+/** Jump to the live edge of a conversation -- see the timeline's scroll button. */
+export function ArrowDownIcon(props: IconProps) {
+  return (
+    <svg {...svg(props, "0 0 18 18", 18)}>
+      <path
+        d="M9 4v10M4.5 9.5L9 14l4.5-4.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export function StopIcon(props: IconProps) {
   return (
     <svg {...svg(props, "0 0 18 18", 18)}>

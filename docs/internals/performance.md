@@ -30,8 +30,15 @@ is why the identity assertions are in
 [`timeline.test.ts`](../../packages/client-runtime/test/timeline.test.ts) rather
 than left to review.
 
+`apply` also derives one thread-level field — `streamingId`, the row the deltas
+are extending. It invalidates the snapshot and so re-renders the list container,
+but it only moves at turn boundaries: twice a turn, not twenty times a second.
+It is read from the ops rather than inferred from the tail of `order`, which is
+a tool row as often as it is a reply.
+
 **Watch for:** `new Map(...)` or `[...items]` inside `apply`; a `sort` that runs
-when nothing was inserted.
+when nothing was inserted; a derived field that changes mid-stream and drags the
+container into every frame with it.
 
 ### 2. Subscribe per row, not per thread
 
@@ -45,6 +52,26 @@ object per call makes `useSyncExternalStore` loop forever, and it is the single
 easiest way to get this wrong.
 
 **Watch for:** a new hook that reads the whole timeline to render one row.
+
+#### Measuring a row is a debt to the reader
+
+Virtualization costs a row at `ESTIMATED_ROW` (72px) until it mounts. A bubble
+of markdown is five to ten times that, so the correction on attach is large, and
+if the row sits above the fold it grows every offset below it — the viewport
+slides by the difference while `scrollTop` does not move. The slide reveals more
+unmeasured rows, which correct, which slide again. Scrolling up compounds this
+into an apparent teleport, and it reads as a glitch rather than as a bug because
+it only happens in territory the reader has not visited yet.
+
+`record` in [`timeline.tsx`](../../apps/web/src/components/timeline.tsx) banks
+the delta and `attachContent` pays it back inside a `ResizeObserver` callback —
+after layout, before paint, the one moment where the new offsets are committed
+and nothing has been drawn. Correcting from the ref callback that took the
+measurement is a frame too early: the rows have not moved yet and the browser
+clamps the write against a content height that is about to change.
+
+**Watch for:** a write to `heights` that does not go through `record`; a
+`scrollTop` adjustment outside a `ResizeObserver`.
 
 ### 3. The flush is demand-scheduled, not periodic
 

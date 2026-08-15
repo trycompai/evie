@@ -175,12 +175,21 @@ export function ApprovalCard({
   const arrive = (node: HTMLDivElement | null) => {
     if (node === null || !pending || requestId === undefined) return
 
-    // The question arriving takes focus -- from an idle place only.
+    /*
+     * The question arriving takes focus -- from an idle place only.
+     *
+     * `preventScroll`, because "arriving" is a lie the timeline tells: rows are
+     * virtualized, so this fires when the row first MOUNTS, which for a
+     * question that was already waiting is whenever the reader scrolls near it.
+     * A bare `focus()` scrolls its element into view, so an old pending card
+     * would yank the viewport to itself mid-scroll. The keyboard still lands on
+     * the card either way; only the scroll was ever wrong.
+     */
     if (!focusTaken.has(requestId)) {
       focusTaken.add(requestId)
       const active = document.activeElement
       if (active === null || active === document.body || isEmptyComposer(active)) {
-        radiosOf(node)[0]?.focus()
+        radiosOf(node)[0]?.focus({ preventScroll: true })
       }
     }
 

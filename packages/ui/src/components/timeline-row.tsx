@@ -5,6 +5,7 @@ import {
   Attachment,
   AttachmentContent,
   AttachmentDescription,
+  AttachmentGroup,
   AttachmentMedia,
   AttachmentTitle,
 } from "@evie/ui/components/attachment"
@@ -49,13 +50,30 @@ export interface TimelineRowProps extends TimelineRowCallbacks {
   readonly streaming?: boolean
 }
 
+/**
+ * Runs of adjacent file parts, so four attachments read as one row of four
+ * rather than four stacked cards that push the message they belong to off the
+ * screen. `AttachmentGroup` gives that row snapping and edge fading; a strip of
+ * five chips is not the surface where a scroll mask costs anything.
+ */
+function chunk(parts: readonly Part[]): (readonly Part[])[] {
+  const runs: Part[][] = []
+  for (const part of parts) {
+    const open = runs[runs.length - 1]
+    if (part.type === "file" && open?.[0]?.type === "file") open.push(part)
+    else runs.push([part])
+  }
+  return runs
+}
+
 function renderParts(
   parts: readonly Part[],
   itemId: string,
   live: boolean,
   onWatchReasoning?: (itemId: string, watching: boolean) => void,
 ) {
-  return parts.map((part, i) => {
+  return chunk(parts).map((run, i) => {
+    const part = run[0]!
     switch (part.type) {
       case "text":
         return <Markdown key={i} source={part.text} />
@@ -71,15 +89,23 @@ function renderParts(
         )
       case "file":
         return (
-          <Attachment key={i} size="sm">
-            <AttachmentMedia>
-              <FileIcon />
-            </AttachmentMedia>
-            <AttachmentContent>
-              <AttachmentTitle>{part.filename ?? part.mediaType}</AttachmentTitle>
-              {part.filename && <AttachmentDescription>{part.mediaType}</AttachmentDescription>}
-            </AttachmentContent>
-          </Attachment>
+          <AttachmentGroup key={i}>
+            {run.map((file, j) =>
+              file.type !== "file" ? null : (
+                <Attachment key={j} size="sm">
+                  <AttachmentMedia>
+                    <FileIcon />
+                  </AttachmentMedia>
+                  <AttachmentContent>
+                    <AttachmentTitle>{file.filename ?? file.mediaType}</AttachmentTitle>
+                    {file.filename && (
+                      <AttachmentDescription>{file.mediaType}</AttachmentDescription>
+                    )}
+                  </AttachmentContent>
+                </Attachment>
+              ),
+            )}
+          </AttachmentGroup>
         )
     }
   })

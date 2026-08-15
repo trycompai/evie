@@ -2,7 +2,8 @@ import { useState } from "react"
 import type { Bot } from "@evie/contracts/bot"
 import type { ThreadId, TurnId } from "@evie/contracts/ids"
 import type { Thread } from "@evie/contracts/thread"
-import { markOf } from "@evie/ui/components/bot-mark"
+import { BotMark, markOf } from "@evie/ui/components/bot-mark"
+import type { BotShape, BotTone } from "@evie/ui/components/bot-mark"
 import { ComputerPane, TerminalView, type ComputerTab } from "@evie/ui/components/computer-pane"
 import { Composer } from "@evie/ui/components/composer"
 import { DayDivider } from "@evie/ui/components/message"
@@ -57,6 +58,13 @@ export function ThreadPane({
 
   const draft = drafts[thread.id] ?? ""
   const mark = markOf(bot)
+  // A bot is `starting` only between BotCreated and BotProvisioned -- its eve
+  // project is still being written and installed. There is nothing to talk to
+  // yet, so the pane says so instead of offering a composer that would dispatch
+  // into a runtime that does not exist. `unhealthy` is the same flow's failure:
+  // provisioning is the only writer of that state in the read model.
+  const provisioning = bot.health.kind === "starting"
+  const provisionFailed = bot.health.kind === "unhealthy"
   // Stop is offered only when eve actually named the turn. Without an id
   // `CancelTurn` has nothing to cancel, so the composer falls back to Send --
   // which steers the running turn, and is true rather than merely reassuring.
@@ -85,16 +93,20 @@ export function ThreadPane({
           computerOpen={computerOpen}
           onToggleComputer={() => setComputerOpen((open) => !open)}
         />
-        <Timeline
-          threadId={thread.id}
-          viewerId={viewerId}
-          nameOf={nameOf}
-          header={<DayDivider label={formatDayDivider(thread.createdAt)} />}
-          onAnswerInput={(requestId, optionId, scope) =>
-            onAnswerInput(thread.id, requestId, optionId, scope)
-          }
-          onWatchReasoning={(itemId, watching) => onWatchReasoning(thread.id, itemId, watching)}
-        />
+        {provisioning ? (
+          <CreatingPane name={bot.name} shape={mark.shape} tone={mark.tone} />
+        ) : (
+          <Timeline
+            threadId={thread.id}
+            viewerId={viewerId}
+            nameOf={nameOf}
+            header={<DayDivider label={formatDayDivider(thread.createdAt)} />}
+            onAnswerInput={(requestId, optionId, scope) =>
+              onAnswerInput(thread.id, requestId, optionId, scope)
+            }
+            onWatchReasoning={(itemId, watching) => onWatchReasoning(thread.id, itemId, watching)}
+          />
+        )}
         <Composer
           placeholder={`Message ${bot.name}`}
           value={draft}
@@ -102,7 +114,14 @@ export function ThreadPane({
           onSend={send}
           onStop={activeTurn === null ? undefined : () => onStop(thread.id, activeTurn)}
           streaming={streaming}
-        />
+          disabled={provisioning || provisionFailed}
+        >
+          {bot.health.kind === "unhealthy" && (
+            <p className="px-1 pb-1 text-compact text-error">
+              {bot.name} couldn&apos;t be set up — the {bot.health.reason} step failed.
+            </p>
+          )}
+        </Composer>
       </main>
 
       {computerOpen && (
@@ -122,6 +141,42 @@ export function ThreadPane({
         </ComputerPane>
       )}
     </>
+  )
+}
+
+/**
+ * The wait while a new bot's eve project is written and installed -- a minute
+ * or more, and the one moment the product literally builds something in front
+ * of the user, so it gets a piece of the first-run delight budget: the
+ * `evie-enter` stagger from onboarding, then the sanctioned `evie-thinking`
+ * tick (4 discrete repaints/s, AGENTS.md's no-continuous-repaint rule) saying
+ * the wait is alive. It unmounts on `BotProvisioned`, when the fleet stream
+ * flips health to `idle` and the timeline takes over.
+ */
+export function CreatingPane({
+  name,
+  shape,
+  tone,
+}: {
+  readonly name: string
+  readonly shape: BotShape
+  readonly tone: BotTone
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-8">
+      <span className="evie-enter">
+        <BotMark size={88} shape={shape} tone={tone} />
+      </span>
+      <div className="evie-enter flex flex-col items-center gap-3 [animation-delay:60ms]">
+        <p className="text-lede text-fg">
+          <span className="evie-thinking">{name} is being created</span>
+        </p>
+        <p className="max-w-[420px] text-center text-compact text-fg-muted">
+          Evie is setting up its computer and installing its runtime. The first time takes a minute
+          or two.
+        </p>
+      </div>
+    </div>
   )
 }
 

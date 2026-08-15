@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto"
-import { existsSync, rmSync } from "node:fs"
+import { existsSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import type { BotHealth } from "@evie/contracts/bot"
 import { RuntimeUnavailable } from "@evie/contracts/errors"
 import type { BotId } from "@evie/contracts/ids"
+import { msbHome } from "@evie/shared/home"
 import {
   Cause,
   Context,
@@ -29,6 +30,7 @@ import { EvieConfig } from "../config.ts"
 import type { Actor } from "../domain/state.ts"
 import { Secrets } from "../secrets/Secrets.ts"
 import { mintTurnToken } from "./jwt.ts"
+import { MSB_VERSION } from "./scaffold.ts"
 
 /**
  * eve runtime lifecycle: one process per ACTIVE bot, lazily started, idle-
@@ -108,7 +110,7 @@ const portPattern = /(?:127\.0\.0\.1|localhost):(\d{1,5})/
  * later wins, so `storedSecrets` listing org before bot is what makes a
  * bot-scoped key override the org's.
  *
- * Evie's own three vars are written last, so a stored secret named
+ * Evie's own vars are written last, so a stored secret named
  * `EVIE_RUNTIME_SECRET` cannot shadow the one this spawn authenticates with.
  *
  * Against the operator's own shell, `extendEnv: true` decides it: the spawner
@@ -129,6 +131,7 @@ export const spawnEnv = (
   botId: BotId,
   runtimeSecret: string,
   allowedHosts: ReadonlyArray<string>,
+  msbHomeDir: string,
   stored: ReadonlyArray<readonly [name: string, value: Redacted.Redacted<string>]>,
 ): Record<string, string> => {
   const env: Record<string, string> = {}
@@ -139,7 +142,28 @@ export const spawnEnv = (
   env.EVIE_BOT_ID = botId
   env.EVIE_RUNTIME_SECRET = runtimeSecret
   env.EVIE_ALLOWED_HOSTS = JSON.stringify(allowedHosts)
+  // Written with Evie's own vars, after the stored loop, for the same reason:
+  // a secret named MSB_HOME must not re-point the sandbox database.
+  env.MSB_HOME = msbHomeDir
   return env
+}
+
+/**
+ * The msb version this bot's runtime will actually spawn -- read from the bot's
+ * own `node_modules`, because that binary is the one whose migration set the
+ * `MSB_HOME` database must match. Scaffolds since `MSB_VERSION` was pinned
+ * always have it installed; older bot dirs resolve eve's `^` range lazily, so
+ * for those the pin is the best available guess.
+ */
+export const installedMsbVersion = (dir: string): string => {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(dir, "node_modules", "microsandbox", "package.json"), "utf8"),
+    ) as { version?: string }
+    return typeof pkg.version === "string" ? pkg.version : MSB_VERSION
+  } catch {
+    return MSB_VERSION
+  }
 }
 
 /**
@@ -327,7 +351,7 @@ const make = Effect.gen(function* () {
     const handle = yield* spawner.spawn(
       ChildProcess.make(eveBin, ["dev", "--no-ui", "--host", "127.0.0.1", "--port", "0"], {
         cwd: dir,
-        env: spawnEnv(botId, secret, allowedHosts, stored),
+        env: spawnEnv(botId, secret, allowedHosts, msbHome(config.home, installedMsbVersion(dir)), stored),
         extendEnv: true,
         killSignal: "SIGTERM",
         forceKillAfter: "5 seconds",

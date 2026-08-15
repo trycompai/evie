@@ -15,18 +15,19 @@ import { inScopeOrder, spawnEnv } from "../src/provider/Supervisor.ts"
 
 const botId = "01JQ0000000000000000000000" as BotId
 const runtimeSecret = "runtime-secret"
+const msbHomeDir = "/evie-home/userdata/msb/0.5.10"
 const stored = (name: string, value: string) => [name, Redacted.make(value)] as const
 
 describe("the eve child's environment", () => {
   it("carries a stored secret under the name it was stored with", () => {
-    const env = spawnEnv(botId, runtimeSecret, [], [stored("AI_GATEWAY_API_KEY", "sk-live-abcd1234")])
+    const env = spawnEnv(botId, runtimeSecret, [], msbHomeDir, [stored("AI_GATEWAY_API_KEY", "sk-live-abcd1234")])
     // `extendEnv: true` merges this over `process.env`, so present here means
     // it beats whatever the operator exported.
     expect(env.AI_GATEWAY_API_KEY).toBe("sk-live-abcd1234")
   })
 
   it("leaves a name it has no secret for alone, so the operator's export survives", () => {
-    const env = spawnEnv(botId, runtimeSecret, [], [])
+    const env = spawnEnv(botId, runtimeSecret, [], msbHomeDir, [])
     expect("AI_GATEWAY_API_KEY" in env).toBe(false)
     expect("ANTHROPIC_API_KEY" in env).toBe(false)
   })
@@ -34,7 +35,7 @@ describe("the eve child's environment", () => {
   it("gives the bot scope the last word over the org's", () => {
     // `storedSecrets` lists org before bot; this is the half that makes that
     // ordering mean something.
-    const env = spawnEnv(botId, runtimeSecret, [], [
+    const env = spawnEnv(botId, runtimeSecret, [], msbHomeDir, [
       stored("AI_GATEWAY_API_KEY", "org-key"),
       stored("AI_GATEWAY_API_KEY", "bot-key"),
     ])
@@ -44,7 +45,7 @@ describe("the eve child's environment", () => {
   it("refuses to let a stored secret shadow the vars the runtime is trusted by", () => {
     // Whoever holds `secret:manage` could otherwise choose the token every
     // caller of this runtime authenticates with.
-    const env = spawnEnv(botId, runtimeSecret, ["ai-gateway.vercel.sh"], [
+    const env = spawnEnv(botId, runtimeSecret, ["ai-gateway.vercel.sh"], msbHomeDir, [
       stored("EVIE_RUNTIME_SECRET", "chosen-by-an-admin"),
       stored("EVIE_BOT_ID", "some-other-bot"),
       stored("EVIE_ALLOWED_HOSTS", "[]"),
@@ -52,6 +53,16 @@ describe("the eve child's environment", () => {
     expect(env.EVIE_RUNTIME_SECRET).toBe(runtimeSecret)
     expect(env.EVIE_BOT_ID).toBe(botId)
     expect(env.EVIE_ALLOWED_HOSTS).toBe(JSON.stringify(["ai-gateway.vercel.sh"]))
+  })
+
+  it("points the sandbox VM database at Evie's own version-keyed home", () => {
+    // Not the machine-global ~/.microsandbox: msb aborts on a database
+    // migrated by a different msb version, and anything else on the box may
+    // have migrated the global one. A stored secret cannot re-point it either.
+    const env = spawnEnv(botId, runtimeSecret, [], msbHomeDir, [
+      stored("MSB_HOME", "/somewhere/else"),
+    ])
+    expect(env.MSB_HOME).toBe(msbHomeDir)
   })
 })
 
@@ -67,21 +78,26 @@ describe("names the child must never receive", () => {
     // `gateway/handlers.ts` writes these as `grant:<connectionId>`. Without the
     // shape test every org grant would sit in every runtime's environment,
     // readable from inside the sandbox with `env`, in exchange for nothing.
-    const env = spawnEnv(botId, runtimeSecret, [], [stored("grant:01JQABC", "tok_live_xyz")])
-    expect(Object.keys(env)).toEqual(["EVIE_BOT_ID", "EVIE_RUNTIME_SECRET", "EVIE_ALLOWED_HOSTS"])
+    const env = spawnEnv(botId, runtimeSecret, [], msbHomeDir, [stored("grant:01JQABC", "tok_live_xyz")])
+    expect(Object.keys(env)).toEqual([
+      "EVIE_BOT_ID",
+      "EVIE_RUNTIME_SECRET",
+      "EVIE_ALLOWED_HOSTS",
+      "MSB_HOME",
+    ])
     expect(JSON.stringify(env)).not.toContain("tok_live_xyz")
   })
 
   it.each(["PATH", "NODE_OPTIONS", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "HOME", "SHELL"])(
     "refuses %s, which reconfigures the process rather than crediting it",
     (name) => {
-      const env = spawnEnv(botId, runtimeSecret, [], [stored(name, "anything")])
+      const env = spawnEnv(botId, runtimeSecret, [], msbHomeDir, [stored(name, "anything")])
       expect(name in env).toBe(false)
     },
   )
 
   it("still carries an ordinary key that merely looks unusual", () => {
-    const env = spawnEnv(botId, runtimeSecret, [], [stored("_MY_PROVIDER_KEY2", "sk-1")])
+    const env = spawnEnv(botId, runtimeSecret, [], msbHomeDir, [stored("_MY_PROVIDER_KEY2", "sk-1")])
     expect(env._MY_PROVIDER_KEY2).toBe("sk-1")
   })
 })
@@ -120,6 +136,7 @@ describe("scope precedence", () => {
       botId,
       runtimeSecret,
       [],
+      msbHomeDir,
       inScopeOrder(scopes, rows).map((ref) => stored(ref.name, value(ref.scope))),
     )
     expect(env.AI_GATEWAY_API_KEY).toBe("sk-bot")

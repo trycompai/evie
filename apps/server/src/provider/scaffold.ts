@@ -23,6 +23,17 @@ import { EvieConfig } from "../config.ts"
 /** Pinned per bot directory (decision 014): a bot never changes runtime under you. */
 export const EVE_VERSION = "0.38.2"
 
+/**
+ * The sandbox VM runtime, pinned exactly for the same reason as eve -- and one
+ * more: msb refuses to open a database migrated by a different msb version, so
+ * "whatever `^0.5.0` resolves to today" is a boot failure waiting for the day
+ * two bots resolve differently. Must satisfy the `microsandbox` peer range of
+ * `EVE_VERSION`; bump the two together. Pinning it here also front-loads the
+ * download into provisioning, where the creation screen covers it, instead of
+ * eve auto-installing it mid-first-turn.
+ */
+export const MSB_VERSION = "0.5.10"
+
 export class ScaffoldFailure extends Schema.TaggedError<ScaffoldFailure>()("ScaffoldFailure", {
   step: Schema.String,
   detail: Schema.String,
@@ -43,6 +54,7 @@ const packageJsonSource = (botId: BotId): string =>
         "@vercel/connect": "0.4.3",
         ai: "^7.0.58",
         eve: EVE_VERSION,
+        microsandbox: MSB_VERSION,
         zod: "4.4.3",
       },
       devDependencies: { "@types/node": "24.x", typescript: "7.0.2" },

@@ -89,8 +89,9 @@ A bot is a role you set up once and keep talking to — "Inbox", "Researcher",
 
 Creating one writes a small project to disk and installs its dependencies, so
 the first bot takes a minute and **needs network access, `git`, and `npm`**.
-While that runs the bot shows as *starting*; it becomes *idle* when it is ready
-to talk, or *unhealthy* with a reason if the install failed.
+While that runs, the conversation says the bot is being created and the
+composer waits; it opens the moment the bot is ready to talk. If the install
+failed, the bot shows as *unhealthy* with the step that broke.
 
 Each bot gets its own computer: a filesystem and a shell, sandboxed, persisting
 between conversations.
@@ -133,6 +134,14 @@ allow … for this session** before you answer. The next time that same tool
 comes up in the same conversation, it goes ahead without asking. The grant is
 exactly as narrow as it sounds: one tool, one session. Start a new session and
 it asks again.
+
+## Reading while it is still writing
+
+Scroll up mid-answer and the conversation stops following along — you are
+reading something, and yanking you back to the bottom every time a sentence
+lands is the fastest way to make a page unreadable. It keeps writing; you keep
+your place. A button appears at the bottom to take you back to the live edge
+when you want it, and it stays gone while you are already there.
 
 ## Knowing your bot is still there
 

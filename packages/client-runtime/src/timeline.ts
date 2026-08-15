@@ -26,6 +26,15 @@ export interface TimelineSnapshot {
 	readonly mode: "full" | "summary";
 	/** Highest `seq` applied. What a reconnect resumes from. */
 	readonly lastSeq: number;
+	/**
+	 * The item currently receiving deltas, or null.
+	 *
+	 * Taken from the deltas themselves -- `appendText`/`appendReasoning` name the
+	 * item they extend -- rather than guessed from the tail of `order`, which is
+	 * a tool row as often as it is a reply. Null in `summary` mode, where no
+	 * deltas arrive and there is nothing honest to point at.
+	 */
+	readonly streamingId: string | null;
 }
 
 export interface ApplyResult {
@@ -43,6 +52,7 @@ export class Timeline {
 	#status: ThreadStatus = READY;
 	#mode: "full" | "summary" = "full";
 	#lastSeq = 0;
+	#streamingId: string | null = null;
 
 	/**
 	 * Cached so `getSnapshot` can be called on every render without allocating.
@@ -62,8 +72,30 @@ export class Timeline {
 			status: this.#status,
 			mode: this.#mode,
 			lastSeq: this.#lastSeq,
+			streamingId: this.#streamingId,
 		};
 		return this.#snapshot;
+	}
+
+	/**
+	 * The unfinished reply in the current turn, for the case deltas cannot cover:
+	 * a client that opened or reconnected mid-turn has the rows but has seen none
+	 * of the chunks that built them.
+	 *
+	 * Bounded to the current turn -- the scan stops at the user row that started
+	 * it -- so a turn that runs fifty tools without narrating never walks the
+	 * thread looking for a reply that is not there, and a reply left unfinished
+	 * by an older turn is never mistaken for a live one.
+	 */
+	#unfinishedReply(): string | null {
+		for (let i = this.#order.length - 1; i >= 0; i--) {
+			const item = this.#items.get(this.#order[i] as string);
+			if (item?.kind === "user") return null;
+			if (item?.kind === "assistant") {
+				return item.finishReason === undefined ? item.id : null;
+			}
+		}
+		return null;
 	}
 
 	#invalidate() {
@@ -100,6 +132,9 @@ export class Timeline {
 	apply(frame: TimelineFrame): ApplyResult {
 		const changed: string[] = [];
 		let inserted = false;
+		// Deltas name the row they extend, so the streaming row is read rather
+		// than inferred. Reset per frame only where the ops say so.
+		let streaming = this.#streamingId;
 
 		for (const op of frame.ops) {
 			switch (op.op) {
@@ -126,6 +161,7 @@ export class Timeline {
 					if (next) {
 						this.#items.set(op.id, next);
 						changed.push(op.id);
+						streaming = op.id;
 					}
 					break;
 				}
@@ -139,6 +175,7 @@ export class Timeline {
 					if (next) {
 						this.#items.set(op.id, next);
 						changed.push(op.id);
+						streaming = op.id;
 					}
 					break;
 				}
@@ -158,12 +195,42 @@ export class Timeline {
 		this.#mode = frame.mode;
 		if (frame.seq > this.#lastSeq) this.#lastSeq = frame.seq;
 
-		const threadChanged = inserted || statusChanged || modeChanged;
+		/*
+		 * A reply stops streaming when it says so -- eve stamps `finishReason` on
+		 * the terminal version of the row -- or when the turn leaves an in-flight
+		 * state, which covers cancel, error, and a provider that dies mid-sentence
+		 * without ever finishing the row.
+		 */
+		if (!live(this.#status)) streaming = null;
+		else {
+			const item = streaming ? this.#items.get(streaming) : undefined;
+			if (
+				item === undefined ||
+				(item.kind === "assistant" && item.finishReason !== undefined)
+			) {
+				streaming = this.#unfinishedReply();
+			}
+		}
+		const streamingChanged = streaming !== this.#streamingId;
+		this.#streamingId = streaming;
+
+		/*
+		 * `threadChanged` is what re-renders the timeline container, and the caret
+		 * has to be in it: a reply finishes via `replace` of a row that is already
+		 * known, a frame that inserts nothing, so leaving it out leaves a caret
+		 * blinking under a finished reply until the next message arrives.
+		 */
+		const threadChanged =
+			inserted || statusChanged || modeChanged || streamingChanged;
 		if (threadChanged) this.#invalidate();
 
 		return { changed, threadChanged };
 	}
 }
+
+/** A turn is in flight. The two states that can be producing a reply. */
+const live = (status: ThreadStatus) =>
+	status.kind === "thinking" || status.kind === "running";
 
 const bySeq = (a: TimelineItem, b: TimelineItem) => a.seq - b.seq;
 

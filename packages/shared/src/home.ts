@@ -11,6 +11,7 @@ import { join, resolve } from "node:path"
  *     secrets.key             0600, AES-256-GCM key (desktop: OS keychain)
  *     blobs/                  content-addressed
  *     orgs/<orgId>/bots/<botId>/   a complete eve project
+ *     msb/<version>/          microsandbox home (MSB_HOME), keyed by msb version
  *     settings.json
  *     desktop.log                 written by the Electron shell, not the server
  * ```
@@ -50,6 +51,19 @@ export const orgDir = (home: EvieHome, orgId: string): string => join(home.orgsD
 
 export const botDir = (home: EvieHome, orgId: string, botId: string): string =>
   join(orgDir(home, orgId), "bots", botId)
+
+/**
+ * Where a bot runtime's microsandbox keeps its VM database, image cache and
+ * sockets (`MSB_HOME`). Evie-owned rather than the machine-global
+ * `~/.microsandbox`, which anything else on the box may have migrated to a
+ * schema this environment's msb refuses to open. Keyed by msb version for the
+ * same reason one directory in: msb aborts on a database migrated by a
+ * different version, so a version bump gets a fresh home instead of a corrupt
+ * shared one. Kept short -- msb creates unix sockets under it, and
+ * `sun_path` caps the whole socket path at ~104 bytes on macOS.
+ */
+export const msbHome = (home: EvieHome, msbVersion: string): string =>
+  join(home.userdata, "msb", msbVersion)
 
 /** Content-addressed: `blobs/ab/cd/abcd…`. Two levels keeps any one dir small. */
 export const blobPath = (home: EvieHome, hash: string): string =>

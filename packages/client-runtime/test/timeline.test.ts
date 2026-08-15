@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { TimelineFrame, TimelineItem } from "@evie/contracts/timeline"
-import type { BotId, ThreadId, TurnId } from "@evie/contracts/ids"
+import type { BotId, ThreadId, TurnId, UserId } from "@evie/contracts/ids"
+import type { ThreadStatus } from "@evie/contracts/thread"
 import { Timeline } from "../src/timeline.ts"
 
 /**
@@ -29,12 +30,49 @@ const assistant = (id: string, seq: number, text: string): TimelineItem =>
     parts: [{ type: "text", text }],
   }) as TimelineItem
 
-const frame = (ops: TimelineFrame["ops"], seq: number): TimelineFrame => ({
+/** A reply that has finished. `finishReason` is what makes it terminal. */
+const finished = (id: string, seq: number, text: string): TimelineItem =>
+  ({ ...assistant(id, seq, text), finishReason: "stop" }) as TimelineItem
+
+const user = (id: string, seq: number, text: string): TimelineItem =>
+  ({
+    kind: "user",
+    id,
+    threadId,
+    seq,
+    at: seq,
+    authorId: "01J00000000000000000USER" as UserId,
+    parts: [{ type: "text", text }],
+  }) as TimelineItem
+
+const tool = (id: string, seq: number, name: string): TimelineItem =>
+  ({
+    kind: "tool",
+    id,
+    threadId,
+    seq,
+    at: seq,
+    botId,
+    turnId,
+    callId: id,
+    name,
+    state: "running",
+  }) as TimelineItem
+
+const frame = (
+  ops: TimelineFrame["ops"],
+  seq: number,
+  status?: ThreadStatus,
+): TimelineFrame => ({
   threadId,
   ops,
   seq,
   mode: "full",
+  ...(status ? { status } : {}),
 })
+
+const thinking: ThreadStatus = { kind: "thinking", turnId }
+const ready: ThreadStatus = { kind: "ready" }
 
 describe("Timeline", () => {
   it("appends a text delta as a suffix", () => {
@@ -185,5 +223,67 @@ describe("Timeline", () => {
     // `on conflict do nothing` consumes one and leaves a gap.
     timeline.apply(frame([], 11))
     expect(timeline.snapshot().lastSeq).toBe(11)
+  })
+
+  /*
+   * The field the chat view draws its caret from. It is wrong in an invisible
+   * way if it is inferred from the tail of `order` instead of read from the
+   * ops, so it gets asserted against the case that breaks the guess: a tool row
+   * arriving last.
+   */
+  describe("streamingId", () => {
+    it("names the row the deltas are extending, not the last row", () => {
+      const timeline = new Timeline()
+      timeline.apply(frame([{ op: "insert", item: assistant("a", 1, "") }], 1, thinking))
+      timeline.apply(frame([{ op: "appendText", id: "a", partIndex: 0, chunk: "hi" }], 2))
+      expect(timeline.snapshot().streamingId).toBe("a")
+
+      // A tool row lands after the reply it was called from. The reply is still
+      // the thing streaming; the tool row is not, and never was.
+      timeline.apply(frame([{ op: "insert", item: tool("t", 3, "bash") }], 3))
+      expect(timeline.snapshot().streamingId).toBe("a")
+    })
+
+    it("clears when the reply finishes, on a frame that inserted nothing", () => {
+      const timeline = new Timeline()
+      timeline.apply(frame([{ op: "insert", item: assistant("a", 1, "hi") }], 1, thinking))
+      timeline.apply(frame([{ op: "appendText", id: "a", partIndex: 0, chunk: "!" }], 2))
+
+      // `replace` of a known id does not change the id set, so this frame is
+      // the exact case where a snapshot that only invalidates on insert leaves
+      // a caret blinking under a finished reply forever.
+      const result = timeline.apply(frame([{ op: "replace", item: finished("a", 1, "hi!") }], 3))
+      expect(timeline.snapshot().streamingId).toBeNull()
+      expect(result.threadChanged).toBe(true)
+    })
+
+    it("clears when the turn leaves an in-flight state", () => {
+      const timeline = new Timeline()
+      timeline.apply(frame([{ op: "insert", item: assistant("a", 1, "") }], 1, thinking))
+      timeline.apply(frame([{ op: "appendText", id: "a", partIndex: 0, chunk: "hi" }], 2))
+
+      // Cancel, error, and a provider that dies mid-sentence all land here:
+      // the row never gets a `finishReason` and only the status says so.
+      timeline.apply(frame([], 3, ready))
+      expect(timeline.snapshot().streamingId).toBeNull()
+    })
+
+    it("finds the unfinished reply on a client that opened mid-turn", () => {
+      const timeline = new Timeline()
+      // Hydrate, then a status-only frame: this client has the rows but saw
+      // none of the chunks that built them.
+      timeline.hydrate([user("u", 1, "go"), assistant("a", 2, "partial")])
+      timeline.apply(frame([], 3, thinking))
+      expect(timeline.snapshot().streamingId).toBe("a")
+    })
+
+    it("does not reach back into a finished turn for one", () => {
+      const timeline = new Timeline()
+      // The previous turn's reply is unfinished-looking only if you ignore that
+      // a newer user message started a turn after it.
+      timeline.hydrate([assistant("old", 1, "no finishReason"), user("u", 2, "again")])
+      timeline.apply(frame([], 3, thinking))
+      expect(timeline.snapshot().streamingId).toBeNull()
+    })
   })
 })

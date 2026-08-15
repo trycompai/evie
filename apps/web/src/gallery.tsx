@@ -10,6 +10,7 @@ import { AppRail } from "~/components/app-rail.tsx"
 import { ConnectAppsScreen } from "~/screens/connect-apps.tsx"
 import { LaunchScreen } from "~/screens/launch.tsx"
 import { MeetEvieScreen } from "~/screens/meet-evie.tsx"
+import { CreatingPane } from "~/screens/chat.tsx"
 import { BOT_SUGGESTIONS, NewBotScreen } from "~/screens/new-bot.tsx"
 import { PluginsDialog } from "~/screens/plugins.tsx"
 import { SignInScreen } from "~/screens/sign-in.tsx"
@@ -226,6 +227,36 @@ function Chat() {
   )
 }
 
+/** The wait between BotCreated and BotProvisioned, normally reachable only mid-install. */
+function ChatCreating() {
+  return (
+    <div className="flex h-full bg-surface">
+      <AppRail
+        bots={BOTS}
+        threads={THREADS}
+        activeThreadId={THREADS[0]!.id}
+        accountName="Lewis Carhart"
+        location="This Mac"
+        desktop
+        onSelectThread={noop}
+        onNewBot={noop}
+        onOpenPlugins={noop}
+        onOpenAccount={noop}
+      />
+      <main className="flex min-w-0 flex-1 flex-col">
+        <ThreadHeader
+          name="Chief of Staff"
+          state={{ kind: "ready" }}
+          health={{ kind: "starting" }}
+          onToggleComputer={noop}
+        />
+        <CreatingPane name="Chief of Staff" shape="circle" tone={1} />
+        <Composer placeholder="Message Chief of Staff" value="" onChange={noop} onSend={noop} disabled />
+      </main>
+    </div>
+  )
+}
+
 const SCREENS: Record<string, () => React.ReactNode> = {
   launch: () => <LaunchScreen state="waiting" onReopen={noop} onCancel={noop} desktop />,
   "sign-in": () => (
@@ -250,6 +281,7 @@ const SCREENS: Record<string, () => React.ReactNode> = {
   "new-bot": () => <NewBot />,
   rail: () => <Rail />,
   chat: () => <Chat />,
+  "chat-creating": () => <ChatCreating />,
   plugins: () => (
     <>
       <Rail />
