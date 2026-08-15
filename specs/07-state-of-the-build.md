@@ -119,7 +119,8 @@ guarantee that the server never outlives it.
 | Notifications | `src/main/notifications.ts` | Delivery only; the reactor still decides when. |
 | Preload | `src/preload/index.ts` | Exposes exactly `@evie/shared/desktop-bridge`. |
 | Bridge contract | `packages/shared/src/desktop-bridge.ts` | One definition, shared with `apps/web`. Nothing Electron in it. |
-| Build | `scripts/build.mjs`, `scripts/icons.mjs` | esbuild x3 + a generated template icon. |
+| Identity | `src/main/index.ts`, `package.json` | `app.setName("Evie")` + `productName`; dock icon set explicitly for unpackaged runs. |
+| Build | `scripts/build.mjs`, `scripts/icons.mjs` | esbuild x3, plus the mark drawn to PNG/`.icns` from its design-system geometry. |
 
 ### Decisions that changed once it was real
 
@@ -136,7 +137,17 @@ guarantee that the server never outlives it.
    mode only, mounted only when all three hold) mints a fresh session on demand.
    Without it, a window that outlived its cookie could only be recovered by
    killing the server and every agent under it.
-4. **The server watches its launcher.** `EVIE_PARENT_PID` +
+4. **The icon is drawn from the design, not exported from it.**
+   `scripts/icons.mjs` reproduces the mark's geometry from
+   `packages/ui/src/components/bot-mark.tsx` — the 34-unit box, the circle, the
+   two slots at 11.6 and 18.8 — and rasterises it at every size macOS asks for,
+   including a real `.icns` via `iconutil`. Nine numbers in a script review in a
+   way a committed binary does not, and @1x and @2x cannot drift apart. The two
+   static colours are the ones `apps/landing/app/icon.svg` already commits to,
+   because an app icon cannot follow the theme the way `BotMark`'s tokens do.
+   Writing it surfaced that the old placeholder tray icon drew a squircle with
+   *one* slot — the mark has two, and they are the whole motif.
+5. **The server watches its launcher.** `EVIE_PARENT_PID` +
    `apps/server/src/parent-watchdog.ts`. Signal handlers cover a kill; nothing
    covers SIGKILL, and an orphaned server holding the port is how the *next*
    launch fails. It watches for reparenting, not for pid liveness, because pids
@@ -167,11 +178,24 @@ guarantee that the server never outlives it.
   client could not tell "no bots" from "not told yet". It now backfills, exactly
   as `subscribeThread` already did.
 
+### Naming, and the one thing that cannot be fixed unpackaged
+
+`app.setName("Evie")` runs before `whenReady`, which is what it takes to get the
+notification sender, the About panel, and `app.getPath("userData")` right —
+that last one is created the first time anything asks for it, so renaming later
+would strand Electron's state under a folder called `Electron`.
+
+The macOS **menu bar title** is the exception. AppKit reads it from the running
+bundle's `Info.plist`, so a checkout run through `electron .` says "Electron" no
+matter what the app calls itself; `productName` fixes it the moment there is a
+bundle. This is a property of running unpackaged, not a defect to chase.
+
 ### Still out of scope
 
 Signing and notarisation, Windows and Linux, auto-update, and the keychain swap
 for `Secrets`. `electron-builder` is not wired up: `bun run build` produces a
-runnable app, not an installer.
+runnable app, not an installer — though `out/icon.icns` is now sitting there
+ready for whichever packager gets wired up first.
 
 
 ## Complete subsystems connected to nothing
