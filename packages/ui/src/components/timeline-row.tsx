@@ -23,7 +23,7 @@ import { ToolCallRow } from "@evie/ui/components/tool-call-row"
  */
 
 export interface TimelineRowCallbacks {
-  readonly onAnswerInput?: (requestId: string, optionId: string) => void
+  readonly onAnswerInput?: (requestId: string, optionId: string, scope: "once" | "always") => void
   readonly onDismissInput?: (requestId: string) => void
   readonly onWatchReasoning?: (itemId: string, watching: boolean) => void
   readonly onFetchToolPayload?: (itemId: string) => void
@@ -119,7 +119,8 @@ export const TimelineRow = memo(function TimelineRow({
           state={item.state}
           answeredWith={item.answeredWith}
           answeredBy={item.answeredBy ? nameOf?.(item.answeredBy) : undefined}
-          onAnswer={(optionId) => onAnswerInput?.(item.requestId, optionId)}
+          toolName={item.toolName}
+          onAnswer={(optionId, scope) => onAnswerInput?.(item.requestId, optionId, scope)}
           onDismiss={() => onDismissInput?.(item.requestId)}
         />
       )

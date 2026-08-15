@@ -64,8 +64,10 @@ function ChatRoute() {
       viewerId={session.userId}
       onSend={(id, text) => void runtime.commands.sendMessage(id, text)}
       onStop={(id, turnId) => void runtime.commands.cancelTurn(id, turnId)}
-      onAnswerInput={(id, requestId, optionId) =>
-        void runtime.commands.answerInput(id, requestId, optionId)
+      onAnswerInput={(id, requestId, optionId, scope) =>
+        // `always` records a session grant server-side; see the input_grant
+        // table and TurnReactor. eve's response schema has no room for it.
+        void runtime.commands.answerInput(id, requestId, optionId, { scope })
       }
       onWatchReasoning={(id, itemId, watching) =>
         runtime.presence.watchReasoning(id, itemId, watching)

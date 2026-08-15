@@ -146,7 +146,9 @@ Everything in this workspace is scoped `@evie/*`.
 
 - `apps/desktop` - `@evie/desktop`. The Electron shell: tray-resident, owns the server as a child
   process, bundles it and the web client with esbuild. macOS only so far, no installer. From that
-  directory, `bun run build && bunx electron .`. See `specs/07-state-of-the-build.md`.
+  directory, `bun run dev` — which builds and launches `out/Evie.app`, a real bundle, because the
+  app's name in the dock and menu bar comes from the bundle and from nowhere else. A checkout build
+  is stamped so it opens the worktree's `.evie`, never `~/.evie`. See `specs/07-state-of-the-build.md`.
 
 **Every `@evie/*` package is just-in-time**: it exports raw `.ts`/`.tsx` and emits nothing. Two
 consequences neither of which is discoverable from a stack trace — an app that imports one must list

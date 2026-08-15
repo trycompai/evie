@@ -12,6 +12,7 @@ import { join, resolve } from "node:path"
  *     blobs/                  content-addressed
  *     orgs/<orgId>/bots/<botId>/   a complete eve project
  *     settings.json
+ *     desktop.log                 written by the Electron shell, not the server
  * ```
  *
  * `AGENTS.md` rule 2: `~/.evie/userdata` is the developer's real database, in

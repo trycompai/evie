@@ -153,6 +153,16 @@ const str = (u: unknown): string | undefined => (typeof u === "string" ? u : und
 const num = (u: unknown): number | undefined => (typeof u === "number" ? u : undefined)
 const arr = (u: unknown): ReadonlyArray<unknown> => (Array.isArray(u) ? u : [])
 
+/**
+ * The tool an input request is gating.
+ *
+ * eve nests it under `action` (`{ kind: "tool-call", toolName, callId, input }`),
+ * and a question-kind request has no tool at all. Read both shapes and treat
+ * absence as absent -- a request with no tool simply cannot be granted.
+ */
+const toolNameOf = (request: Record<string, unknown>): string | undefined =>
+  str(rec(request["action"])["toolName"]) ?? str(request["toolName"])
+
 const FINISH_REASONS: ReadonlyArray<FinishReason> = [
   "stop",
   "length",
@@ -226,6 +236,25 @@ const defaultSandbox = (): SandboxConfig => ({
 
 const enforcedFor = (backend: SandboxConfig["backend"]): SandboxConfig["network"]["enforced"] =>
   backend === "just-bash" ? "none" : backend === "docker" ? "coarse" : "domain"
+
+/**
+ * What a turn did to the files, as one line.
+ *
+ * The sha stays on the front so the row remains a handle to the checkpoint,
+ * and the counts follow when there are any -- a checkpoint with no measured
+ * changes reads as the bare sha rather than as "0 files changed", which is a
+ * sentence nobody needs to read.
+ */
+const changeSummary = (data: {
+  readonly sha: string
+  readonly files: number
+  readonly insertions: number
+  readonly deletions: number
+}): string => {
+  if (data.files === 0) return data.sha
+  const files = `${data.files} file${data.files === 1 ? "" : "s"} changed`
+  return `${data.sha} \u00b7 ${files}, +${data.insertions} \u2212${data.deletions}`
+}
 
 /* --- the projector -------------------------------------------------------------- */
 
@@ -468,11 +497,17 @@ export const apply = (model: ReadModel, event: StoredEvent): ReadonlyArray<RowCh
           threadId: data.threadId,
           at: event.at,
           event: "checkpoint",
-          detail: data.sha,
+          detail: changeSummary(data),
         }),
       ]
     }
-    case "CheckpointRestoreRequested": {
+    /*
+     * The ask alone puts nothing in the timeline. The reactor does the work and
+     * appends `CheckpointRestored`; until then there is nothing true to say.
+     */
+    case "CheckpointRestoreRequested":
+      return []
+    case "CheckpointRestored": {
       const thread = model.threads.get(data.threadId)
       if (thread === undefined) return []
       return [
@@ -715,6 +750,8 @@ const applyMirror = (
             requestId,
             prompt: str(r["prompt"]) ?? str(r["question"]) ?? str(r["toolName"]) ?? "Approve?",
             ...(options.length === 0 ? {} : { options }),
+            // eve nests the tool under `action`; older shapes put it at the top.
+            ...(toolNameOf(r) === undefined ? {} : { toolName: toolNameOf(r) }),
             allowFreeform: str(r["kind"]) === "question",
             state: "pending",
           }),

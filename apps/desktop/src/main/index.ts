@@ -1,5 +1,6 @@
 import { app, dialog, ipcMain, nativeImage } from "electron"
 import { CHANNEL, parseDeepLink, type DeepLink, type ServerStatus } from "@evie/shared/desktop-bridge"
+import { EvieLog } from "./log.ts"
 import { parseNotify, showNotification } from "./notifications.ts"
 import { EvieServer } from "./server.ts"
 import { EvieTray } from "./tray.ts"
@@ -36,22 +37,43 @@ interface Quittable {
   isQuitting?: boolean
 }
 
+/**
+ * The log's version of `statusLabel` in `tray.ts`. Kept separate on purpose:
+ * one is menu copy for whoever is looking now, this one is the line that has to
+ * still make sense to whoever opens the file tomorrow.
+ */
+const statusLine = (status: ServerStatus): string => {
+  switch (status.kind) {
+    case "starting":
+      return "server starting"
+    case "ready":
+      return `server ready on ${status.origin}`
+    case "restarting":
+      return `server restarting (attempt ${status.attempt})`
+    case "failed":
+      return `server failed: ${status.reason}`
+  }
+}
+
 const shell = new (class {
+  readonly log = new EvieLog()
   readonly window = new MainWindow()
   readonly server = new EvieServer({
     onStatus: (status) => this.#status(status),
     onNotify: (line) => this.#notify(line),
-    onLog: (line) => {
-      if (line.trim().length > 0) process.stdout.write(`[server] ${line}\n`)
-    },
+    onLog: (line) => this.log.server(line),
   })
   readonly tray = new EvieTray({
     onOpen: () => void this.open(),
     onRestart: () => void this.restart(),
+    onRevealLog: () => this.log.reveal(),
     onQuit: () => void this.quit(),
   })
 
   #status(status: ServerStatus): void {
+    // Before the tray and the window, so a transition that takes one of them
+    // down is still recorded above the crash that follows it.
+    this.log.shell(statusLine(status))
     this.tray.status(status)
     this.window.status(status)
     if (status.kind === "failed") {
@@ -111,6 +133,8 @@ const shell = new (class {
   }
 
   async quit(): Promise<void> {
+    // So a log that ends here reads as a quit rather than as a disappearance.
+    this.log.shell("quitting")
     ;(app as Quittable).isQuitting = true
     // Stop the server before Electron tears the process down, so SQLite closes
     // cleanly and the child never outlives the shell that spawned it.
@@ -174,6 +198,7 @@ if (!app.requestSingleInstanceLock()) {
     process.on(signal, () => {
       // Synchronous, before anything is awaited -- see `EvieServer.stopNow`.
       shell.server.stopNow()
+      shell.log.shell(`quitting on ${signal}`)
       ;(app as Quittable).isQuitting = true
       app.quit()
     })
@@ -202,6 +227,10 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(async () => {
+    // First line of every run: what launched, and where the file it is writing
+    // to lives -- the one thing a log cannot tell you by being read.
+    shell.log.shell(`Evie ${app.getVersion()} starting, logging to ${shell.log.path}`)
+
     // The dock icon comes from the bundle when packaged; running from a
     // checkout there is no bundle, so it is set explicitly or the dock shows
     // Electron's own atom.
@@ -218,9 +247,10 @@ if (!app.requestSingleInstanceLock()) {
       const handle = await shell.server.start()
       await shell.window.show(handle.claimUrl)
     } catch (error) {
-      // The status handler has already shown the error box; the tray stays up
-      // so the user can quit, or restart once they have fixed the cause.
-      process.stderr.write(`[shell] server failed to start: ${String(error)}\n`)
+      // The status handler has already shown the error box and logged the
+      // reason; the tray stays up so the user can quit, or restart once they
+      // have fixed the cause.
+      shell.log.shell(`server failed to start: ${String(error)}`)
     }
   })
 }

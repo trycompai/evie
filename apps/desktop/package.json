@@ -10,7 +10,8 @@
     "icons": "node scripts/icons.mjs",
     "bundle": "node scripts/build.mjs",
     "build": "bun run icons && bun run bundle",
-    "dev": "bun run build && electron .",
+    "package": "bun run build && node scripts/package.mjs",
+    "dev": "bun run package && EVIE_HOME=../../.evie ./out/Evie.app/Contents/MacOS/Evie",
     "lint": "eslint",
     "check-types": "tsc --noEmit"
   },

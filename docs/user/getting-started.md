@@ -21,8 +21,7 @@ onto it, and lives in the menu bar. You need Bun; it brings its own Node.
 
 ```sh
 bun i
-turbo run build --filter=@evie/desktop
-cd apps/desktop && bunx electron .
+cd apps/desktop && bun run dev
 ```
 
 Closing the window does not stop Evie — that is the point of a local agent app.
@@ -31,6 +30,11 @@ Your bots keep working, and the menu bar icon is where you find it again.
 
 While you are running it from a checkout it keeps its data in the repository's
 own `.evie` directory, not in `~/.evie`, so it cannot touch a real install.
+
+If the menu bar says Evie stopped, **Reveal Log in Finder** in that same menu
+selects `desktop.log` inside Evie's `userdata` directory. It holds what the app
+and its server both printed, newest last, and it keeps one previous file — so
+the reason a start failed is still there after the app has tried again.
 
 ## Run just the server and a browser
 
@@ -91,6 +95,15 @@ to talk, or *unhealthy* with a reason if the install failed.
 Each bot gets its own computer: a filesystem and a shell, sandboxed, persisting
 between conversations.
 
+## Look at its computer
+
+The screen button beside a bot's name opens its computer, and **Files** is the
+disk it works on. Folders open when you click them, one level at a time.
+
+The listing is taken the moment you look at it, not kept up to date — a bot
+writing files while the pane is open will not move the rows. Closing a folder
+and opening it again re-reads it, and so does leaving the tab and coming back.
+
 ## Talk to it
 
 Type. Press Enter.
@@ -102,6 +115,12 @@ is parked waiting for an answer from you — if the app looks busy, it is busy.
 Before a bot does something consequential it asks, right there in the
 conversation rather than in a dialog that steals your place. You can approve or
 say no. Saying no is not an error; the bot carries on.
+
+If it is asking about a tool you are happy for it to keep using, tick **Always
+allow … for this session** before you answer. The next time that same tool
+comes up in the same conversation, it goes ahead without asking. The grant is
+exactly as narrow as it sounds: one tool, one session. Start a new session and
+it asks again.
 
 ## Reloading keeps your place
 
@@ -135,9 +154,16 @@ So you do not go looking:
 - **No members, invitations, or teams**, though the database has been ready for
   them since the first migration.
 - **No snooze or archive** in the interface, though the commands exist.
+- **Only Files works in a bot's computer.** Terminal and Browser are there and
+  empty, and no file opens when you click it.
 - **No remote access** — no pairing, no LAN mode you can reach from a phone.
-- **Reopening the app forgets your bots** until the cold-load fix lands. They are
-  still on disk; the rail just does not fetch them.
+- **No way to see a diff.** A turn now tells you how many files it changed and
+  by how much, and you can restore a checkpoint — but there is nowhere to read
+  the actual patch yet.
+- **Restoring rewinds your files, not the bot's memory.** The agent keeps
+  believing it made the edits. That is deliberate: the runtime has no way to
+  forget back to a point in time, and pretending otherwise would be worse than
+  saying so.
 
 ## One thing that is already true
 

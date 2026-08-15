@@ -2,7 +2,7 @@ import { execFile } from "node:child_process"
 import { rmSync } from "node:fs"
 import { join } from "node:path"
 import type { RuntimeUnavailable } from "@evie/contracts/errors"
-import { CheckpointWritten, type StoredEvent } from "@evie/contracts/events"
+import { CheckpointRestored, CheckpointWritten, type StoredEvent } from "@evie/contracts/events"
 import type { BotId, ThreadId } from "@evie/contracts/ids"
 import { Context, Effect, Option, Schema } from "effect"
 import type { SqlError } from "effect/unstable/sql/SqlError"
@@ -74,6 +74,44 @@ const git = (
     )
   })
 
+/**
+ * Git's own name for "nothing", so a first checkpoint diffs against an empty
+ * tree instead of being special-cased.
+ */
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+/**
+ * `N files changed, +X -Y` for one checkpoint commit.
+ *
+ * `--numstat` rather than `--shortstat` because it is machine-readable and
+ * unlocalised, and binary files report `-` for both counts, which parse to
+ * zero without special handling. A failure here is not a failed checkpoint --
+ * the commit is already written and the numbers are recoverable from git
+ * later, so this degrades to zeroes rather than losing the turn's work.
+ */
+const summarize = (
+  gitDir: string,
+  sha: string,
+): Effect.Effect<{ files: number; insertions: number; deletions: number }> =>
+  git(["--git-dir", gitDir, "diff", "--numstat", `${sha}^`, sha]).pipe(
+    // No parent means the first checkpoint on this thread; diff against nothing.
+    Effect.catch(() => git(["--git-dir", gitDir, "diff", "--numstat", EMPTY_TREE, sha])),
+    Effect.map((out: string) => {
+      let files = 0
+      let insertions = 0
+      let deletions = 0
+      for (const line of out.split("\n")) {
+        if (line.trim() === "") continue
+        const [added, removed] = line.split("\t")
+        files += 1
+        insertions += Number(added) || 0
+        deletions += Number(removed) || 0
+      }
+      return { files, insertions, deletions }
+    }),
+    Effect.catch(() => Effect.succeed({ files: 0, insertions: 0, deletions: 0 })),
+  )
+
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const store = yield* EventStore
@@ -126,14 +164,18 @@ const make = Effect.gen(function* () {
         yield* git(["--git-dir", gitDir, "update-ref", ref, commitSha])
         return commitSha
       }).pipe(
+
         Effect.ensuring(Effect.sync(() => rmSync(indexFile, { force: true }))),
       )
       if (sha === null) return
 
+      const stats = yield* summarize(gitDir, sha)
+
       const commit: Commit = Effect.gen(function* () {
         yield* sql`
-          insert into checkpoint (id, thread_id, turn_id, sha, created_at)
-          values (${deriveUlid(event.id, "checkpoint")}, ${data.threadId}, ${data.turnId}, ${sha}, ${Date.now()})
+          insert into checkpoint (id, thread_id, turn_id, sha, created_at, files, insertions, deletions)
+          values (${deriveUlid(event.id, "checkpoint")}, ${data.threadId}, ${data.turnId}, ${sha}, ${Date.now()},
+                  ${stats.files}, ${stats.insertions}, ${stats.deletions})
           on conflict (id) do nothing`
         yield* store.append(
           [
@@ -143,6 +185,7 @@ const make = Effect.gen(function* () {
                 threadId: data.threadId,
                 turnId: data.turnId,
                 sha,
+                ...stats,
               }),
               orgId: event.orgId,
               threadId: data.threadId,
@@ -155,17 +198,96 @@ const make = Effect.gen(function* () {
       return commit
     })
 
+  /**
+   * Puts the files back.
+   *
+   * `add -A` then `read-tree -u --reset`, rather than a checkout: together they
+   * update the working tree *and* remove files the checkpoint does not have,
+   * which is the difference between restoring a state and merging into one.
+   * Through the same private per-thread index the write half uses, so the
+   * user's real index is never touched and two threads cannot corrupt each
+   * other. `checkpoint-restore.test.ts` pins both halves.
+   *
+   * What this deliberately does not do is rewind the agent's memory. eve owns
+   * the session and has no "forget back to turn N"; pretending otherwise would
+   * leave the bot certain it made edits that no longer exist. The timeline row
+   * says the files were restored, and says only that.
+   */
+  const handleRestore = (
+    event: StoredEvent,
+    data: Extract<StoredEvent["data"], { _tag: "CheckpointRestoreRequested" }>,
+  ) =>
+    Effect.gen(function* () {
+      const rows = yield* sql<{ sha: string; thread_id: string }>`
+        select sha, thread_id from checkpoint where id = ${data.checkpointId} limit 1`
+      const checkpoint = rows[0]
+      // A checkpoint id that names nothing is a stale client, not a failure.
+      if (checkpoint === undefined || checkpoint.thread_id !== data.threadId) return
+
+      const bots = yield* sql<{ bot_id: string }>`
+        select bot_id from thread_participant
+        where thread_id = ${data.threadId} and is_default = 1 limit 1`
+      const botId = bots[0]?.bot_id as BotId | undefined
+      if (botId === undefined) return
+
+      const botRows = yield* sql<{ dir: string; sandbox: string }>`
+        select dir, sandbox from bot where id = ${botId}`
+      const bot = botRows[0]
+      if (bot === undefined) return
+      const sandbox = JSON.parse(bot.sandbox) as { backend?: string }
+      // Same exclusion as the write half: no real git in that sandbox, so
+      // there is nothing to restore from.
+      if (sandbox.backend === "just-bash") return
+
+      const workspace = yield* sources.workspacePath(botId, data.threadId)
+      if (workspace === null) return
+
+      const gitDir = join(bot.dir, ".git")
+      const indexFile = join(gitDir, `evie-index-${data.threadId}`)
+      const indexEnv = { GIT_INDEX_FILE: indexFile }
+      yield* Effect.gen(function* () {
+        /*
+         * The index has to be told what is on disk before it is reset, or
+         * `--reset` treats everything the agent created since the checkpoint
+         * as untracked and leaves it behind -- which merges two states instead
+         * of restoring one, and is exactly the lying label this replaced.
+         */
+        yield* git(["--git-dir", gitDir, "--work-tree", workspace, "add", "-A", "."], indexEnv)
+        yield* git(
+          ["--git-dir", gitDir, "--work-tree", workspace, "read-tree", "-u", "--reset", checkpoint.sha],
+          indexEnv,
+        )
+      }).pipe(Effect.ensuring(Effect.sync(() => rmSync(indexFile, { force: true }))))
+
+      const commit: Commit = store.append(
+        [
+          {
+            id: deriveUlid(event.id, "checkpoint-restored"),
+            data: CheckpointRestored.make({
+              threadId: data.threadId,
+              checkpointId: data.checkpointId,
+              sha: checkpoint.sha,
+            }),
+            orgId: event.orgId,
+            threadId: data.threadId,
+            botId,
+            actorUserId: event.actorUserId,
+          },
+        ],
+        { aggregate: { kind: "thread", id: data.threadId } },
+      )
+      return commit
+    })
+
   return {
     name: "checkpoint" as const,
     handle: (
       event: StoredEvent,
     ): Effect.Effect<Commit | void, SqlError | RuntimeUnavailable | GitFailure> => {
       const data = event.data
-      // CheckpointRestoreRequested is Phase 2's restore half; the write half
-      // ships now because the seam is worse than the feature. Restore lands
-      // with the sandbox reattach work in the same phase.
-      if (data._tag !== "TurnSettled") return Effect.void
-      return handleSettled(event, data)
+      if (data._tag === "TurnSettled") return handleSettled(event, data)
+      if (data._tag === "CheckpointRestoreRequested") return handleRestore(event, data)
+      return Effect.void
     },
   }
 })

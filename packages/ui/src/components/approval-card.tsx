@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { cn } from "@evie/ui/lib/utils"
 import { CloseIcon } from "@evie/ui/components/icon"
 
@@ -29,7 +30,12 @@ export interface ApprovalCardProps {
   readonly answeredWith?: string
   /** Who answered, in a shared thread. Absent in a solo organization. */
   readonly answeredBy?: string
-  readonly onAnswer?: (optionId: string) => void
+  /**
+   * The tool being gated. Its presence is what makes a session-long grant
+   * offerable -- "always allow" with nothing named is not a decision.
+   */
+  readonly toolName?: string
+  readonly onAnswer?: (optionId: string, scope: "once" | "always") => void
   readonly onDismiss?: () => void
 }
 
@@ -45,10 +51,18 @@ export function ApprovalCard({
   state,
   answeredWith,
   answeredBy,
+  toolName,
   onAnswer,
   onDismiss,
 }: ApprovalCardProps) {
   const pending = state === "pending"
+  /*
+   * The scope rides on the answer rather than being a third row of buttons.
+   * Doubling every option into "approve" and "always approve" is how a card
+   * with three choices becomes six, and the grant is a modifier on a decision
+   * the user is already making, not a separate decision.
+   */
+  const [always, setAlways] = useState(false)
 
   return (
     <div className="flex w-[780px] max-w-full flex-col gap-3.5 rounded-bubble bg-raised px-[18px] pt-4 pb-[18px]">
@@ -74,7 +88,7 @@ export function ApprovalCard({
               key={option.id}
               type="button"
               disabled={!pending}
-              onClick={() => onAnswer?.(option.id)}
+              onClick={() => onAnswer?.(option.id, always ? "always" : "once")}
               className={cn(
                 "flex h-12 shrink-0 items-center gap-3 px-3.5 text-left",
                 i < options.length - 1 && "border-b border-line-subtle",
@@ -101,6 +115,21 @@ export function ApprovalCard({
           )
         })}
       </div>
+
+      {pending && toolName !== undefined && onAnswer && (
+        <label className="flex cursor-pointer items-center gap-2.5 text-metadata text-fg-muted">
+          <input
+            type="checkbox"
+            checked={always}
+            onChange={(event) => setAlways(event.target.checked)}
+            className="size-3.5 shrink-0 accent-fg"
+          />
+          {/* Names the tool and the bound, because both are the promise. */}
+          <span>
+            Always allow <span className="text-fg">{toolName}</span> for this session
+          </span>
+        </label>
+      )}
 
       {state !== "pending" && (
         <p className="text-metadata text-fg-muted">

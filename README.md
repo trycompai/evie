@@ -48,9 +48,14 @@ to install, and it keeps its data in this repository's `.evie`, never `~/.evie`:
 
 ```sh
 bun i
-turbo run build --filter=@evie/desktop
-cd apps/desktop && bunx electron .
+cd apps/desktop && bun run dev
 ```
+
+That builds `out/Evie.app` and launches it. It is a real bundle rather than a
+bare `electron .` because every place macOS shows an app's name — the dock, the
+menu bar, the app switcher — reads it from the bundle, and nothing a running
+process does can change that. Built from a checkout it keeps its data in this
+repository's `.evie`, never `~/.evie`, and refuses to do otherwise.
 
 It is tray-resident: closing the window leaves the server running, and **Quit
 Evie** in the menu bar is what stops it. macOS only, unsigned, no installer yet.

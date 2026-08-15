@@ -1,4 +1,5 @@
-import { join } from "node:path"
+import { readFileSync } from "node:fs"
+import { join, resolve } from "node:path"
 import { app } from "electron"
 
 /**
@@ -31,7 +32,40 @@ export const appIcon = join(ASSETS, "icon.png")
  * real database, and the server's own `assertNotLiveInstall` would refuse to
  * start if it tried.
  */
-export const evieHome = (): { readonly path: string; readonly live: boolean } =>
-  app.isPackaged
-    ? { path: join(app.getPath("home"), ".evie"), live: true }
-    : { path: join(__dirname, "..", "..", "..", ".evie"), live: false }
+export const evieHome = (): { readonly path: string; readonly live: boolean } => {
+  /*
+   * An inherited `EVIE_HOME` wins, in both modes. Without this a packaged build
+   * could only ever be tested against the developer's real install, which
+   * `AGENTS.md` rule 2 exists to prevent -- and "the only way to try the
+   * shipped artifact is to point it at your live data" is how that rule gets
+   * broken by someone following instructions.
+   */
+  const override = process.env["EVIE_HOME"]
+  if (override !== undefined && override.length > 0) {
+    return { path: resolve(override), live: false }
+  }
+  if (!app.isPackaged) return { path: join(__dirname, "..", "..", "..", ".evie"), live: false }
+
+  /*
+   * A bundle built from a checkout is packaged but is not an install.
+   * `scripts/package.mjs` stamps the workspace's own `.evie` into the app
+   * manifest; a release pipeline will not, and only then does `~/.evie` --
+   * the live install, and the one thing AGENTS.md rule 2 protects -- apply.
+   */
+  const devHome = readDevHome()
+  if (devHome !== undefined) return { path: devHome, live: false }
+
+  return { path: join(app.getPath("home"), ".evie"), live: true }
+}
+
+const readDevHome = (): string | undefined => {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(process.resourcesPath, "app", "package.json"), "utf8"),
+    ) as { devHome?: unknown }
+    return typeof manifest.devHome === "string" ? resolve(manifest.devHome) : undefined
+  } catch {
+    // No manifest, or no stamp: a real install. Fall through to ~/.evie.
+    return undefined
+  }
+}

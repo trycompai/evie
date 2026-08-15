@@ -136,6 +136,15 @@ export const InputItem = Schema.Struct({
   requestId: Schema.String,
   prompt: Schema.String,
   options: Schema.optional(Schema.Array(InputOption)),
+  /**
+   * The tool this request is gating, when it is gating one.
+   *
+   * Present so the card can name what an "always allow" would grant -- a
+   * session-long approval for an unnamed action is not a decision anyone can
+   * make. It is also the key the grant is stored under, so the two cannot
+   * describe different things.
+   */
+  toolName: Schema.optional(Schema.String),
   allowFreeform: Schema.Boolean,
   state: InputState,
   /** Which option won, once answered. Keeps the resolved card readable. */

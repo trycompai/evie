@@ -224,8 +224,49 @@ const initial = Effect.gen(function* () {
     )`
 })
 
+/**
+ * Session-scoped approval grants.
+ *
+ * "Always allow for this session" cannot be forwarded to the provider: eve's
+ * `inputResponseSchema` is strict and carries exactly `requestId`, `optionId`,
+ * and `text`. So the grant is Evie's to keep, which is the right place for it
+ * anyway -- Evie owns the approval surface, and a grant the user can see is a
+ * grant the user can revoke.
+ *
+ * Keyed by (session, tool) because that is the promise the card makes: this
+ * action, this session. A grant does not outlive the session it was given in.
+ */
+const inputGrant = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`
+    create table input_grant (
+      session_id text not null,
+      tool_name  text not null,
+      option_id  text not null,
+      granted_by text not null,
+      granted_at integer not null,
+      primary key (session_id, tool_name)
+    )`
+})
+
+/**
+ * The per-turn file summary, beside the sha it describes.
+ *
+ * Defaulted rather than backfilled: an existing checkpoint's numbers are
+ * recoverable from git at any time, and zero reads honestly as "we did not
+ * measure this one" in a UI that only shows the line when files > 0.
+ */
+const checkpointStats = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`alter table checkpoint add column files integer not null default 0`
+  yield* sql`alter table checkpoint add column insertions integer not null default 0`
+  yield* sql`alter table checkpoint add column deletions integer not null default 0`
+})
+
 export const migrations = {
   "1_initial": initial,
+  "2_input_grant": inputGrant,
+  "3_checkpoint_stats": checkpointStats,
 }
 
 /** Runs after Better Auth's own migrations. Requires `SqlClient` -- provide `Db.layer` under it. */

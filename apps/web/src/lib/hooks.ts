@@ -1,7 +1,8 @@
 import { useCallback, useSyncExternalStore } from "react"
-import type { ThreadId } from "@evie/contracts/ids"
+import type { BotId, ThreadId } from "@evie/contracts/ids"
 import type { TimelineItem } from "@evie/contracts/timeline"
 import type { ConnectionState } from "@evie/client-runtime/client"
+import type { FileTreeSnapshot } from "@evie/client-runtime/files"
 import type { FleetSnapshot } from "@evie/client-runtime/store"
 import type { TimelineSnapshot } from "@evie/client-runtime/timeline"
 import { useRuntime } from "./runtime.ts"
@@ -68,6 +69,31 @@ export function useTimelineItem(threadId: ThreadId, itemId: string): TimelineIte
     [store, threadId, itemId],
   )
   const snapshot = useCallback(() => store.getItemSnapshot(threadId, itemId), [store, threadId, itemId])
+  return useSyncExternalStore(subscribe, snapshot)
+}
+
+/**
+ * One bot's files, for the Computer pane.
+ *
+ * The only hook here that fetches, and the one place the fleet's rule is
+ * inverted on purpose. `computer.list` is a read with no stream behind it, so
+ * *looking is the request* -- and doing it on subscribe means the tab
+ * reopening, the pane reopening, and the thread moving to a different bot all
+ * re-read without a caller having to remember which of them it was. React runs
+ * `subscribe` after commit, so unlike the fleet's stream there is no discarded
+ * render that could leave one running.
+ */
+export function useBotFiles(botId: BotId): FileTreeSnapshot {
+  const { store } = useRuntime()
+  const subscribe = useCallback(
+    (cb: () => void) => {
+      const stop = store.subscribeFiles(botId)(cb)
+      void store.browseFiles(botId)
+      return stop
+    },
+    [store, botId],
+  )
+  const snapshot = useCallback(() => store.getFilesSnapshot(botId), [store, botId])
   return useSyncExternalStore(subscribe, snapshot)
 }
 

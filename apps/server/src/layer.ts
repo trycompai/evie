@@ -63,8 +63,9 @@ const SecretsLive = Secrets.layer.pipe(Layer.provide([DbLive, ConfigLive]), Laye
 const NodeLive = NodeServices.layer
 const HttpClientLive = NodeHttpClient.layerUndici
 
+/** `Secrets` rides along because the spawn env is where BYOK keys land (05). */
 const SupervisorLive = Supervisor.layer.pipe(
-  Layer.provide([ConfigLive, DbLive, NodeLive, HttpClientLive]),
+  Layer.provide([ConfigLive, DbLive, NodeLive, HttpClientLive, SecretsLive]),
   Layer.provide(SchemaLive),
 )
 

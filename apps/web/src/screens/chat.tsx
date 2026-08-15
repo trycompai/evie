@@ -7,6 +7,7 @@ import { ComputerPane, TerminalView, type ComputerTab } from "@evie/ui/component
 import { Composer } from "@evie/ui/components/composer"
 import { DayDivider } from "@evie/ui/components/message"
 import { ThreadHeader } from "@evie/ui/components/thread-header"
+import { FileTree } from "~/components/file-tree.tsx"
 import { Timeline } from "~/components/timeline.tsx"
 import { formatDayDivider } from "~/lib/format.ts"
 
@@ -26,7 +27,12 @@ export interface ThreadPaneProps {
   readonly onSend: (threadId: ThreadId, text: string) => void
   /** Given the in-flight turn, which the status carries while one is running. */
   readonly onStop: (threadId: ThreadId, turnId: TurnId) => void
-  readonly onAnswerInput: (threadId: ThreadId, requestId: string, optionId: string) => void
+  readonly onAnswerInput: (
+    threadId: ThreadId,
+    requestId: string,
+    optionId: string,
+    scope: "once" | "always",
+  ) => void
   readonly onWatchReasoning: (threadId: ThreadId, itemId: string, watching: boolean) => void
   readonly onOpenSandboxSettings?: () => void
 }
@@ -83,7 +89,9 @@ export function ThreadPane({
           viewerId={viewerId}
           nameOf={nameOf}
           header={<DayDivider label={formatDayDivider(thread.createdAt)} />}
-          onAnswerInput={(requestId, optionId) => onAnswerInput(thread.id, requestId, optionId)}
+          onAnswerInput={(requestId, optionId, scope) =>
+            onAnswerInput(thread.id, requestId, optionId, scope)
+          }
           onWatchReasoning={(itemId, watching) => onWatchReasoning(thread.id, itemId, watching)}
         />
         <Composer
@@ -108,6 +116,7 @@ export function ThreadPane({
             enforced: bot.sandbox.network.enforced,
           }}
         >
+          {computerTab === "files" ? <FileTree botId={bot.id} /> : null}
           {computerTab === "terminal" ? <TerminalView lines={[]} /> : null}
         </ComputerPane>
       )}

@@ -1,5 +1,5 @@
 import { RuntimeUnavailable } from "@evie/contracts/errors"
-import { TurnDispatched, TurnSettled, type StoredEvent } from "@evie/contracts/events"
+import { InputAnswered, TurnDispatched, TurnSettled, type StoredEvent } from "@evie/contracts/events"
 import type { BotId, SessionId, ThreadId, TurnId, UserId } from "@evie/contracts/ids"
 import { Context, Effect } from "effect"
 import type { SqlError } from "effect/unstable/sql/SqlError"
@@ -217,6 +217,28 @@ const make = Effect.gen(function* () {
           requestId: data.requestId,
         })
       }
+      /*
+       * "Always allow for this session" is Evie's to keep.
+       *
+       * eve's input-response schema is strict and carries exactly requestId,
+       * optionId and text -- there is nowhere to put a scope, and an unknown
+       * key would be rejected rather than ignored. So the grant is recorded
+       * here and applied by `handleInputRequested` on the next matching
+       * request. The answer itself still goes to eve unchanged.
+       */
+      if (data.scope === "always" && data.optionId !== null) {
+        const tool = yield* toolNameFor(data.threadId, data.requestId)
+        if (tool !== undefined) {
+          yield* sql`
+            insert into input_grant (session_id, tool_name, option_id, granted_by, granted_at)
+            values (${row.session_id}, ${tool}, ${data.optionId}, ${actingAs}, ${event.at})
+            on conflict (session_id, tool_name) do update set
+              option_id = excluded.option_id,
+              granted_by = excluded.granted_by,
+              granted_at = excluded.granted_at`
+        }
+      }
+
       yield* dispatch.respondInput({
         botId: row.bot_id as BotId,
         sessionId: row.session_id as SessionId,
@@ -225,6 +247,95 @@ const make = Effect.gen(function* () {
         optionId: data.optionId,
         scope: data.scope,
       })
+    })
+
+  /** The tool a mirrored request was gating, read back out of its payload. */
+  const toolNameFor = Effect.fn("TurnReactor.toolNameFor")(function* (
+    threadId: ThreadId,
+    requestId: string,
+  ) {
+    const probe = `"requestId":"${requestId}"`
+    const rows = yield* sql<{ data: string }>`
+      select data from event
+      where thread_id = ${threadId}
+        and type = 'EveMirrored'
+        and json_extract(data, '$.eveType') = 'input.requested'
+        and instr(data, ${probe}) > 0
+      order by seq desc limit 1`
+    const raw = rows[0]?.data
+    if (raw === undefined) return undefined
+    try {
+      const payload = JSON.parse(raw) as { payload?: { requests?: ReadonlyArray<Record<string, unknown>> } }
+      for (const request of payload.payload?.requests ?? []) {
+        if (request["requestId"] !== requestId) continue
+        const action = request["action"]
+        const nested =
+          typeof action === "object" && action !== null
+            ? (action as Record<string, unknown>)["toolName"]
+            : undefined
+        const name = nested ?? request["toolName"]
+        return typeof name === "string" ? name : undefined
+      }
+    } catch {
+      // A payload we cannot read is a request we cannot grant. Not an error.
+    }
+    return undefined
+  })
+
+  /**
+   * Applies a standing grant, if the user gave one.
+   *
+   * Emits an ordinary `InputAnswered` rather than calling the adapter directly,
+   * so the answer travels the one path every other answer takes: the projection
+   * marks the card resolved, and `handleAnswer` forwards it. Scoped `once`, or
+   * it would re-grant itself on every request forever.
+   */
+  const handleInputRequested = (
+    event: StoredEvent,
+    data: Extract<StoredEvent["data"], { _tag: "EveMirrored" }>,
+  ) =>
+    Effect.gen(function* () {
+      const payload = data.payload as { requests?: ReadonlyArray<Record<string, unknown>> } | null
+      const requests = payload?.requests ?? []
+      if (requests.length === 0) return
+
+      const answers: Array<{ requestId: string; optionId: string; grantedBy: string }> = []
+      for (const request of requests) {
+        const requestId = request["requestId"]
+        if (typeof requestId !== "string") continue
+        const action = request["action"]
+        const nested =
+          typeof action === "object" && action !== null
+            ? (action as Record<string, unknown>)["toolName"]
+            : undefined
+        const tool = nested ?? request["toolName"]
+        if (typeof tool !== "string") continue
+        const grants = yield* sql<{ option_id: string; granted_by: string }>`
+          select option_id, granted_by from input_grant
+          where session_id = ${data.sessionId} and tool_name = ${tool} limit 1`
+        const grant = grants[0]
+        if (grant === undefined) continue
+        answers.push({ requestId, optionId: grant.option_id, grantedBy: grant.granted_by })
+      }
+      if (answers.length === 0) return
+
+      return store.append(
+        answers.map((answer, index) => ({
+          id: deriveUlid(event.id, `granted-${index}`),
+          data: InputAnswered.make({
+            threadId: data.threadId,
+            requestId: answer.requestId,
+            optionId: answer.optionId,
+            scope: "once" as const,
+          }),
+          orgId: event.orgId,
+          threadId: data.threadId,
+          botId: data.botId,
+          // Attributed to whoever granted it. The grant was their decision.
+          actorUserId: answer.grantedBy as UserId,
+        })),
+        { aggregate: { kind: "thread", id: data.threadId } },
+      )
     })
 
   const handleCancel = (data: Extract<StoredEvent["data"], { _tag: "TurnCancelRequested" }>) =>
@@ -316,7 +427,9 @@ const make = Effect.gen(function* () {
         case "SessionClearRequested":
           return handleSession(data.threadId, data.botId, dispatch.clearSession)
         case "EveMirrored":
-          return handleSettle(event, data)
+          return data.eveType === "input.requested"
+            ? handleInputRequested(event, data)
+            : handleSettle(event, data)
         default:
           return Effect.void
       }

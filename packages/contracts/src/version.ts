@@ -7,4 +7,4 @@
  * browser tab on tryevie.ai is easily a version ahead of the environment it
  * dials into, and the alternative is a decode failure twenty frames later.
  */
-export const CONTRACT_VERSION = 5
+export const CONTRACT_VERSION = 6

@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A push that supersedes an in-flight run cancels it. Nobody needs the results
+# of the commit before the one they just fixed.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check-types, lint, test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      # Pinned to the same versions the workspace declares: `packageManager` for
+      # bun, `engines.node` for node. Turbo shells out to `bun run <script>`,
+      # and several package scripts shell out to `node` from there.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.12
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # Bun's global module store. Keyed on the lockfile, so a dependency bump
+      # refetches and every other run installs from disk.
+      - name: Cache bun modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      # Turbo's local cache. Only CI writes these keys -- a developer's laptop
+      # cache never reaches here -- so a PR that touches one package replays the
+      # other nine from a previous green run.
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - run: bun install --frozen-lockfile
+
+      # This is the one place repo-wide checks are correct: AGENTS.md tells
+      # contributors to filter, because CI owns the full suite. All three run
+      # even after one fails, so a red build reports everything at once.
+      - name: Check types
+        run: bun run check-types
+
+      # `--max-warnings 0`, not a bare `lint`. Errors already fail; this is what
+      # stops a rule the config left at "warn" from rotting.
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: bun run lint:ci
+
+      - name: Test
+        if: ${{ !cancelled() }}
+        run: bun run test

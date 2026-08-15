@@ -15,7 +15,7 @@ Read in this order:
 | [04-clients.md](./04-clients.md)                       | Web, desktop, `@evie/ui`, and the performance budget                    |
 | [05-auth-secrets-remote.md](./05-auth-secrets-remote.md) | Better Auth, BYOK, connection modes                                   |
 | [06-roadmap.md](./06-roadmap.md)                       | Repo layout, phases, what ships when                                    |
-| [07-state-of-the-build.md](./07-state-of-the-build.md) | What exists today, what is proven, what is missing, what to build next  |
+| [07-state-of-the-build.md](./07-state-of-the-build.md) | What exists today, what is proven, what is missing, how it measures against t3code, what to build next |
 
 ## The one-paragraph version
 
@@ -53,7 +53,9 @@ access. Models run through a Vercel AI Gateway token you supply, or direct provi
 ## `AGENTS.md`
 
 `AGENTS.md` had drifted — it described a target repo that did not exist and carried vocabulary from
-[t3code](https://github.com/pingdotgg/t3code) that does not apply here. **All of it is fixed.** Kept
+[t3code](https://github.com/pingdotgg/t3code) that does not apply here. **All of it is fixed.** (The
+lineage is worth more than a warning, though: t3code is the same architecture several years further
+along, and [07](./07-state-of-the-build.md#measured-against-t3code) measures Evie against it.) Kept
 here as a record of what to watch for, since a file every agent reads on every task is the worst
 place to leave something untrue:
 

@@ -1,9 +1,10 @@
 import type { Bot } from "@evie/contracts/bot";
-import type { ThreadId } from "@evie/contracts/ids";
+import type { BotId, ThreadId } from "@evie/contracts/ids";
 import type { SessionInfo } from "@evie/contracts/org";
 import type { Thread } from "@evie/contracts/thread";
 import type { TimelineItem } from "@evie/contracts/timeline";
 import type { ConnectionState, EvieClient } from "./client.ts";
+import { FileTree, ROOT, type FileTreeSnapshot } from "./files.ts";
 import { Timeline, type TimelineSnapshot } from "./timeline.ts";
 
 /**
@@ -57,6 +58,7 @@ export class EvieStore {
 	#fleet: FleetSnapshot = EMPTY_FLEET;
 
 	readonly #timelines = new Map<string, Timeline>();
+	readonly #fileTrees = new Map<string, FileTree>();
 	/** Unsubscribe per open thread. Presence and idle-stop follow this map's keys. */
 	readonly #subscriptions = new Map<string, () => void>();
 
@@ -64,6 +66,7 @@ export class EvieStore {
 	readonly #fleetListeners = new Set<Listener>();
 	readonly #threadListeners = new Map<string, Set<Listener>>();
 	readonly #itemListeners = new Map<string, Set<Listener>>();
+	readonly #fileListeners = new Map<string, Set<Listener>>();
 
 	/**
 	 * Takes a client *factory*, not a client.
@@ -292,6 +295,72 @@ export class EvieStore {
 			this.#timelines.set(threadId, timeline);
 		}
 		return timeline;
+	}
+
+	/* --- files ------------------------------------------------------------ */
+
+	subscribeFiles = (botId: BotId) => (listener: Listener) => {
+		let set = this.#fileListeners.get(botId);
+		if (!set) {
+			set = new Set();
+			this.#fileListeners.set(botId, set);
+		}
+		set.add(listener);
+		return () => set.delete(listener);
+	};
+
+	getFilesSnapshot = (botId: BotId): FileTreeSnapshot =>
+		this.#fileTree(botId).snapshot();
+
+	/**
+	 * Lists the bot's own directory: what the Computer pane opens on.
+	 *
+	 * Re-reads every time it is called rather than answering from the cache. A
+	 * bot writes files while you are looking at them and nothing pushes when it
+	 * does, so the only listing worth showing is the one taken when you asked.
+	 */
+	browseFiles(botId: BotId): Promise<void> {
+		return this.#list(botId, ROOT);
+	}
+
+	/** Opens or closes one directory. Opening re-reads it; closing is free. */
+	toggleDirectory(botId: BotId, path: string): Promise<void> {
+		const tree = this.#fileTree(botId);
+		if (tree.isOpen(path)) {
+			tree.close(path);
+			notify(this.#fileListeners.get(botId));
+			return Promise.resolve();
+		}
+		// Opened first, so a folder you have seen before paints its old children
+		// on the click rather than after the round trip.
+		tree.open(path);
+		notify(this.#fileListeners.get(botId));
+		return this.#list(botId, path);
+	}
+
+	async #list(botId: BotId, path: string): Promise<void> {
+		const tree = this.#fileTree(botId);
+		if (!tree.claim(path)) return;
+		try {
+			const nodes = await this.client.rpc((client) =>
+				client["computer.list"]({ botId, path }),
+			);
+			tree.settle(path, nodes);
+		} catch {
+			// Which path failed is the whole message; the pane names it. There is
+			// nothing here to retry -- the next click re-reads.
+			tree.fail(path);
+		}
+		notify(this.#fileListeners.get(botId));
+	}
+
+	#fileTree(botId: BotId): FileTree {
+		let tree = this.#fileTrees.get(botId);
+		if (!tree) {
+			tree = new FileTree();
+			this.#fileTrees.set(botId, tree);
+		}
+		return tree;
 	}
 
 	dispose(): void {

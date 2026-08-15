@@ -248,6 +248,26 @@ export const CheckpointWritten = Schema.TaggedStruct("CheckpointWritten", {
   threadId: ThreadId,
   turnId: TurnId,
   sha: Schema.String,
+  /**
+   * What the turn did to the files, computed once when the checkpoint is
+   * written rather than by re-running git per render. This is the glanceable
+   * answer to "what changed while I was away" -- without it a user has to
+   * audit a diff by hand to learn whether anything happened at all.
+   */
+  files: Schema.Int,
+  insertions: Schema.Int,
+  deletions: Schema.Int,
+})
+/**
+ * The files are back. Distinct from `CheckpointRestoreRequested`, which is only
+ * the ask -- restoring is filesystem work that can fail, and a timeline that
+ * says "restored" the instant a button is pressed is a label that lies for as
+ * long as it takes to find out.
+ */
+export const CheckpointRestored = Schema.TaggedStruct("CheckpointRestored", {
+  threadId: ThreadId,
+  checkpointId: Schema.String,
+  sha: Schema.String,
 })
 export const NotificationDelivered = Schema.TaggedStruct("NotificationDelivered", {
   /** Null for notifications about a routine with no delivery thread. */
@@ -343,6 +363,7 @@ export const EvieEvent = Schema.Union([
   TurnSettled,
   RoutineFired,
   CheckpointWritten,
+  CheckpointRestored,
   NotificationDelivered,
   RuntimeReady,
   RuntimeStopped,

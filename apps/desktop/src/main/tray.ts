@@ -23,13 +23,17 @@ const statusLabel = (status: ServerStatus): string => {
     case "restarting":
       return `Restarting (attempt ${status.attempt})…`
     case "failed":
-      return "Stopped — see Console"
+      // Names what "Reveal Log in Finder" below opens. This said "see Console"
+      // until there was a log -- advice to go and read somewhere the shell had
+      // never written a word.
+      return "Stopped — see the log"
   }
 }
 
 export interface TrayActions {
   readonly onOpen: () => void
   readonly onRestart: () => void
+  readonly onRevealLog: () => void
   readonly onQuit: () => void
 }
 
@@ -69,6 +73,7 @@ export class EvieTray {
         { type: "separator" },
         { label: "Open Evie", accelerator: "Command+O", click: this.actions.onOpen },
         { label: "Restart Server", click: this.actions.onRestart },
+        { label: "Reveal Log in Finder", click: this.actions.onRevealLog },
         { type: "separator" },
         // The only exit. `window-all-closed` deliberately does not quit.
         { label: "Quit Evie", accelerator: "Command+Q", click: this.actions.onQuit },

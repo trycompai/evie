@@ -1,5 +1,5 @@
 import { cn } from "@evie/ui/lib/utils"
-import { FileIcon, FolderIcon } from "@evie/ui/components/icon"
+import { ChevronRightIcon, FileIcon, FolderIcon } from "@evie/ui/components/icon"
 import { Segmented } from "@evie/ui/components/segmented"
 
 /**
@@ -102,23 +102,54 @@ export interface FileRowProps {
   readonly name: string
   readonly kind: "file" | "dir"
   readonly depth: number
+  /**
+   * Directories only. Draws the twisty and is what tells a screen reader the
+   * row opens something; leaving it off marks the row as a plain entry.
+   */
+  readonly expanded?: boolean
   readonly onSelect?: () => void
 }
 
-export function FileRow({ name, kind, depth, onSelect }: FileRowProps) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className="flex h-8 w-full items-center gap-2 rounded-small px-2 text-left hover:bg-raised"
-      // Indent is data, not design: there is no Tailwind class for "depth 4".
-      style={{ paddingLeft: 8 + depth * 14 }}
-    >
+export function FileRow({ name, kind, depth, expanded, onSelect }: FileRowProps) {
+  const row = "flex h-8 w-full items-center gap-2 rounded-small px-2 text-left"
+  // Indent is data, not design: there is no Tailwind class for "depth 4".
+  const indent = { paddingLeft: 8 + depth * 14 }
+  const content = (
+    <>
+      {/* Held open on every row, so names stay in one column whatever is beside them. */}
+      <span
+        className={cn(
+          "flex w-3 shrink-0 items-center justify-center text-fg-muted",
+          expanded === true && "rotate-90",
+        )}
+      >
+        {expanded === undefined ? null : <ChevronRightIcon size={12} />}
+      </span>
       <span className="flex w-4 shrink-0 items-center justify-center text-fg-muted">
         {kind === "dir" ? <FolderIcon /> : <FileIcon />}
       </span>
       <span className="min-w-0 flex-1 truncate font-mono text-metadata text-fg">{name}</span>
+    </>
+  )
+
+  // A row with nowhere to go is not a control. Rendering it as one anyway gives
+  // it a hover state, a focus ring and a tab stop for a click that does
+  // nothing -- three hundred of them between the folder you want and the next
+  // thing you can actually press.
+  return onSelect ? (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-expanded={expanded}
+      className={cn(row, "hover:bg-raised")}
+      style={indent}
+    >
+      {content}
     </button>
+  ) : (
+    <div className={row} style={indent}>
+      {content}
+    </div>
   )
 }
 

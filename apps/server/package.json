@@ -7,9 +7,13 @@
     "./main": "./src/main.ts",
     "./layer": "./src/layer.ts"
   },
+  "bin": {
+    "evie": "./dist/evie.mjs"
+  },
   "scripts": {
     "dev": "EVIE_HOME=../../.evie EVIE_PORT=${EVIE_PORT:-3001} tsx watch --clear-screen=false src/main.ts",
     "start": "node --experimental-strip-types src/main.ts",
+    "build": "node scripts/build.mjs",
     "lint": "eslint",
     "check-types": "tsc --noEmit",
     "test": "vitest run"
@@ -28,8 +32,11 @@
   "devDependencies": {
     "@evie/eslint-config": "workspace:*",
     "@evie/typescript-config": "workspace:*",
+    "@evie/web": "workspace:*",
     "@types/node": "^24.13.3",
+    "esbuild": "^0.25.10",
     "eslint": "^9.39.1",
+    "globals": "^17.11.0",
     "tsx": "^4.20.7",
     "typescript": "5.9.2",
     "vitest": "^3.2.4"

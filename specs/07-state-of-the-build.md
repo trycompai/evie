@@ -23,14 +23,14 @@ Two rules for keeping it useful:
 | `@evie/landing` | ~1,900 | Next 16, all ten sections of the Paper Landing page. Server components only. Built by the maintainer. |
 | `@evie/contracts` | ~1,800 | The wire as Effect Schema. |
 | `@evie/client-runtime` | ~940 | RPC client, external store, row-level subscriptions. |
-| `@evie/shared` | ~260 | ULID, home paths, slugs, truncation. |
-| `apps/desktop` | 0 | **Does not exist.** |
+| `@evie/shared` | ~340 | ULID, home paths, slugs, truncation, the desktop bridge contract. |
+| `@evie/desktop` | ~1,200 | Tray-resident macOS shell. Owns the server as a child, native window buttons, deep links, notification delivery. No installer. |
 
-`turbo run check-types lint test` is 20/20 tasks, 76 tests. Read that number
+`turbo run check-types lint test` is 20/20 tasks, 129 tests. Read that number
 carefully: see [The quality gate is thinner than it looks](#the-quality-gate-is-thinner-than-it-looks).
 
-**Nothing is committed.** ~20,000 lines of uncommitted working tree on `main`.
-Fix that before anything else here.
+**Nothing is committed.** The whole working tree is uncommitted on `main`. Fix
+that before anything else here.
 
 ## What is genuinely proven
 
@@ -45,6 +45,8 @@ Observed against a running server writing to a worktree-local `.evie`:
 | Projection latency | 10 ms, down from 17.9 s once provisioning moved out of the projector. |
 | Reactors resume from their cursor | Killed mid-work; the projector replayed and materialised the missing row. |
 | The UI matches the design | Every screen screenshotted from a fixture gallery beside its Paper artboard. Divergences recorded in `docs/internals/design-system.md`. |
+| The desktop app works | Driven over CDP against a real server: preload bridge exposed with no `ipcRenderer`/`require`/`process` leaking to the page; zoom resizes the window and back; minimize hides it; close hides while shell and server keep running; `evie://thread/<id>` from a second launch forwards through the single-instance lock and selects the thread; SIGKILL of the shell leaves no orphaned server. |
+| The rail loads on a cold start | The window opens onto a populated fleet read from disk, not an empty rail. |
 
 **What has never been proven: an actual agent turn.** No eve runtime has been
 observed answering. There is no integration test and no recorded-stream fixture,
@@ -56,37 +58,59 @@ unexercised. Everything downstream of "the bot replied" is theory.
 These four, in order, are what stand between "boots" and "a bot answers you".
 Each is small. Together they are the difference between a demo and a product.
 
+**#2 is fixed** — see below. **#1 is now the only thing between a running Evie
+and a useful one**, and it is no longer theoretical: the desktop app runs, a
+thread opens, a message sends, and the bot answers *"AI Gateway received no
+credentials."*
+
 ### 1. The API key never reaches a runtime
 
 The BYOK pitch dead-ends twice over:
 
-- There is no settings screen and nothing calls `setSecret`.
-- **`Secrets.valueForSpawn` has zero callers.** Even if the UI existed, a stored
-  key would go nowhere: `Supervisor.spawn` injects only `EVIE_BOT_ID`,
-  `EVIE_RUNTIME_SECRET`, and `EVIE_ALLOWED_HOSTS` (`Supervisor.ts:144-155`).
+- There is no settings screen and nothing calls `setSecret`. **This is now the
+  whole of the gap** -- the server half is done.
+- ~~`Secrets.valueForSpawn` has zero callers.~~ **Fixed.** Stored secrets reach
+  the eve child's environment, org scope first so a bot-scoped key wins, and
+  stored beats an operator's shell export -- deliberately, because a control
+  that reports it took a key while an invisible export keeps serving the old one
+  is worse than no control. Two things the review caught and that are now
+  guarded at the same choke point: connection grants (`grant:<id>`, org-scoped)
+  were landing in every runtime's environment under a name nothing reads, and a
+  secret named `NODE_OPTIONS` or `PATH` would have reconfigured the process it
+  was meant to credit.
 
 The only working path today is `AI_GATEWAY_API_KEY` exported in the server
 operator's own shell, inherited by the eve child through `extendEnv: true`.
 Nothing documents that; it has to be reverse-engineered.
 
 `docs/user/getting-started.md` says "Paste it in Settings → Models". That screen
-does not exist. **That document is currently false** — it also describes a
-desktop app, device pairing, and remote access, none of which exist. Correct or
-withdraw it.
+does not exist; the document has been corrected to say so, and to document the
+environment-variable path that does work. Device pairing and remote access are
+still described nowhere because they still do not exist.
 
-### 2. A reload shows an empty app even with data on disk
+### 2. A reload shows an empty app even with data on disk — **fixed**
 
-The web client never calls `bots.list` or `threads.list`. Both are fully
-implemented server-side. The rail is fed exclusively by `fleet.subscribe`
-frames, which carry deltas and no initial snapshot.
+The rail was fed exclusively by `fleet.subscribe`, and `Hub.subscribeFleet`
+registered a subscriber that only ever emitted on a *delta*. A client joining a
+quiet org received nothing at all, so on every cold load `bots.length === 0`.
 
-So on every cold load `bots.length === 0`. Worse, `app.tsx:60` initialises the
-onboarding state from `bots.length` on the first render of `Signed`, which runs
-before any frame arrives and never re-derives — **an existing user is dropped
-into first-run onboarding every time they open the app.**
+Two halves, both landed:
 
-Two fixes: fetch a snapshot on connect, and derive onboarding from something
-that settles.
+- **The server backfills.** `fleet.subscribe` now reads a snapshot and
+  concatenates the live stream, exactly as `subscribeThread` already did. The
+  subscription opens *before* the read, so an event arriving in between is
+  queued rather than lost — it replays as a delta over rows the snapshot already
+  carried, which the client merges by id. `bots.list` / `threads.list` and the
+  snapshot share one query each, because two copies of a query that must agree
+  is how a rail ends up showing something the list does not.
+- **The client waits for it.** `FleetSnapshot.loaded` gates the first paint, and
+  the view is derived from settled state rather than from `bots.length` on the
+  first render.
+
+Worth recording as a near miss: the `loaded` gate landed first, and on its own
+it turned "wrong screen" into *blank window* — a strictly worse failure, and the
+one that showed up in the desktop app. A gate is only as good as the thing it
+waits for.
 
 ### 3. The model is hard-coded
 
@@ -121,6 +145,7 @@ guarantee that the server never outlives it.
 | Bridge contract | `packages/shared/src/desktop-bridge.ts` | One definition, shared with `apps/web`. Nothing Electron in it. |
 | Identity | `src/main/index.ts`, `package.json` | `app.setName("Evie")` + `productName`; dock icon set explicitly for unpackaged runs. |
 | Build | `scripts/build.mjs`, `scripts/icons.mjs` | esbuild x3, plus the mark drawn to PNG/`.icns` from its design-system geometry. |
+| Bundle | `scripts/package.mjs` | `out/Evie.app`: renamed executable and helpers, patched `Info.plist`, `evie://` on the bundle, ad-hoc signature. |
 
 ### Decisions that changed once it was real
 
@@ -178,24 +203,60 @@ guarantee that the server never outlives it.
   client could not tell "no bots" from "not told yet". It now backfills, exactly
   as `subscribeThread` already did.
 
-### Naming, and the one thing that cannot be fixed unpackaged
+### Naming, and why it forced a bundle
 
 `app.setName("Evie")` runs before `whenReady`, which is what it takes to get the
 notification sender, the About panel, and `app.getPath("userData")` right —
 that last one is created the first time anything asks for it, so renaming later
 would strand Electron's state under a folder called `Electron`.
 
-The macOS **menu bar title** is the exception. AppKit reads it from the running
-bundle's `Info.plist`, so a checkout run through `electron .` says "Electron" no
-matter what the app calls itself; `productName` fixes it the moment there is a
-bundle. This is a property of running unpackaged, not a defect to chase.
+It is also not enough. Everything a macOS app *calls itself* in the places a
+user looks — the dock name and tooltip, the menu bar title, the Finder icon, the
+name in a permission prompt — AppKit reads from the running bundle's
+`Info.plist`. No runtime API reaches any of it. Running from a checkout is
+therefore always "Electron", and the fix is not a call, it is being a bundle.
+
+So `scripts/package.mjs` builds one: Electron's own `.app` copied, executable
+and all four helpers renamed, `Info.plist` patched with the name, identifier
+(`ai.tryevie.desktop`), icon, and `evie://` scheme, then re-signed ad-hoc
+because every rename invalidates the original signature and Apple Silicon
+refuses to launch a bundle whose signature no longer matches. macOS then
+registers it as **Evie**, which is verifiable rather than asserted:
+`lsappinfo` reports `"Evie" … bundleID="ai.tryevie.desktop"`.
+
+It is deliberately not `electron-builder`. It does the one thing that makes the
+app *itself* and stops short of DMGs, signing identities, notarisation, and
+update feeds — a distribution problem rather than an identity one. A real
+packager replaces this file; until then it is what makes `Evie.app` something
+you can double-click.
+
+**`bun run dev` builds and launches that bundle** rather than invoking Electron
+directly, because the bundle is not a packaging nicety — it is the only way the
+app can be called by its own name anywhere a user looks. It costs about a
+second: APFS clones the 272 MB of Electron rather than copying it. Verified
+rather than asserted — with the bundle frontmost, `System Events` reports both
+the process name and the first menu bar item as **Evie**.
+
+Two consequences about Evie home, one of which is a trap that change opens:
+
+- A packaged build resolves home to `~/.evie`, correct for a shipped app and
+  dangerous for testing one. `evieHome()` lets an inherited `EVIE_HOME` win in
+  both modes, so the bundle can be exercised against a scratch directory.
+  Without it, the only way to try the shipped artifact is to point it at the
+  developer's live database — rule 2 broken by someone following instructions.
+- `app.isPackaged` is also true for the bundle sitting in `out/`, so making it
+  the dev path would have pointed every `bun run dev` at `~/.evie`.
+  `scripts/package.mjs` therefore stamps the workspace's own `.evie` into the
+  app manifest and `paths.ts` prefers it: a bundle built in a checkout cannot
+  open the live install even when double-clicked with no environment set. A
+  release pipeline omits the stamp and `~/.evie` applies as it should.
 
 ### Still out of scope
 
-Signing and notarisation, Windows and Linux, auto-update, and the keychain swap
-for `Secrets`. `electron-builder` is not wired up: `bun run build` produces a
-runnable app, not an installer — though `out/icon.icns` is now sitting there
-ready for whichever packager gets wired up first.
+A real signing identity and notarisation, Windows and Linux, auto-update, and
+the keychain swap for `Secrets`. `bun run package` produces an app that runs on
+the machine that built it; Gatekeeper stops it anywhere else, which is the line
+between "an app" and "a distributable".
 
 
 ## Complete subsystems connected to nothing
@@ -212,7 +273,7 @@ caller reaches:
 | `SetInstructions` | The event now carries the text, so the information survives — but still no reactor consumes it and the scaffold never rewrites `instructions.md`. Half fixed. |
 | Routines | Backend is complete and careful — tz-aware cron, `next_run_at` recomputed from `(cron, tz)` at boot, blocked-once semantics, run-as-left backstop. Zero UI. |
 | Member-scoped connections | Schema, commands, grant secrets, and `principalType: "user"` JWTs all built. Grant tokens are never injected into a runtime. |
-| `computer.list` | Real server implementation; no client caller. It also reads the **host filesystem** under the bot's project dir, which is fine in dev mode and wrong the day a real sandbox lands. |
+| `computer.list` | ~~No client caller.~~ **Wired.** The Computer pane's Files tab lists the bot's directory and opens a folder on click, through a `FileTree` slice in the store. Still reads the **host filesystem** under the bot's project dir, which is fine in dev mode and wrong the day a real sandbox lands. |
 | `loadMore` / `closeThread` / `presence.closed` | Implemented, tested at the store level, zero callers. A thread longer than the first 60 items silently shows only its tail. |
 | `SignInScreen`, `ContextMeter`, `button.tsx` | Finished components rendered only by the gallery, or by nothing. The Better Auth browser client is constructed in `runtime.ts` and never called. |
 | `Actor` in `contracts/rpc.ts` | Dead duplicate; the server defines its own in `domain/state.ts`. |
@@ -235,13 +296,22 @@ Distinct from "not built yet" — these are wrong, not absent:
 
 ## The quality gate is thinner than it looks
 
-`20/20 tasks, 76 tests` overstates the case:
+`20/20 tasks, 129 tests` still overstates the case, though two of the worst
+entries have been closed:
 
-- **Lint cannot fail.** `packages/eslint-config/base.js` uses
-  `eslint-plugin-only-warn` and nothing passes `--max-warnings`, so every rule is
-  a warning and `turbo run lint` is always green.
-- **There is no CI.** No `.github/` at all, while `AGENTS.md` and `specs/06` both
-  say "CI owns the full suite."
+- ~~**Lint cannot fail.**~~ **Fixed**, by deleting `eslint-plugin-only-warn`
+  rather than working around it. The plugin downgraded every rule to a warning,
+  which deleted severity as a concept: a genuine `no-undef` and an advisory
+  `turbo/no-undeclared-env-vars` came out identical and `eslint` exited 0 for
+  both. Now errors fail locally (you find out before CI does), advisory rules
+  stay advisory, and `bun run lint:ci` adds `--max-warnings 0` so an advisory
+  rule cannot quietly rot. It immediately caught real defects in work in flight,
+  which is the whole argument for it.
+- ~~**There is no CI.**~~ **Fixed.** `.github/workflows/ci.yml` runs
+  check-types, lint (strict), and test across the workspace on Node 24 with bun
+  pinned from `packageManager`. This is the one place a repo-wide run is
+  correct. Each check is guarded with `if: !cancelled()` so one red check still
+  reports the other two rather than costing a round-trip per fix.
 - **Three of the five roadmap-named tests are missing**: the reactor
   crash-recovery test (which the roadmap calls "the test that keeps
   work-continues true"), the supervisor leak test, and the adapter
@@ -255,7 +325,14 @@ Distinct from "not built yet" — these are wrong, not absent:
 - **`turbo.json`'s `transit` task resolves to nothing** — no package defines the
   script, so the dependency edge it exists to carry is inert.
 - **62 of 130 source files fail `prettier --check`**, and 9 are hard-diverged to
-  tabs-with-semicolons by some other formatter. No format check runs anywhere.
+  tabs-with-semicolons by some other formatter. No format check runs anywhere,
+  and CI deliberately does not add one — turning it on today would fail on
+  mostly-untouched files, which is a formatting migration rather than a gate.
+- **One residual hole in the BYOK tests, named rather than papered over.** Scope
+  precedence is now decided by an exported pure function with its own
+  assertions, but nothing proves the *call site* still uses it: delete the call
+  and the ordering tests stay green. Closing that properly needs a database-
+  backed test of `storedSecrets`, which is real harness work.
 
 ## Spec-level gaps worth naming
 
@@ -279,20 +356,248 @@ Distinct from "not built yet" — these are wrong, not absent:
 - **`apps/landing` is ahead of the product.** Its copy claims "v0.4 brings remote
   environments" and shows a star count placeholder. Nothing relay-shaped exists.
 
+## Measured against t3code
+
+[t3code](https://github.com/pingdotgg/t3code) is the closest thing Evie has to a
+control group. `specs/README.md` already names it as the source of vocabulary
+`AGENTS.md` had to be cleaned of; what that note understates is how much of the
+*design* is shared. t3code is `apps/{server,web,desktop,mobile,marketing}` and
+`packages/{contracts,client-runtime,shared}`, an event-sourced orchestration
+engine, and one authenticated Effect RPC WebSocket. So is Evie.
+
+That makes the comparison unusually sharp and unusually fair. Almost nothing
+below is "t3code made a different bet." It is the same bet, several years
+further along, which means the gaps are a schedule rather than an argument.
+
+**How this was produced**, because a comparison is only worth what its method
+is: six analyses, one per dimension (providers, remote, mobile, desktop,
+workspace, distribution), each reading both trees. Every claim then went to an
+independent verifier told to check the *Evie* side hardest and to default to
+rejection. Of 36 claims, 34 completed verification: 27 confirmed, 7 softened,
+**none survived as flatly wrong** — which says the analysts were careful, not
+that the verifiers were lenient. Two claims this document does *not* make were
+killed before they got here: that Evie lacks per-method authorization (it runs
+`auth.hasPermission` per command, `gateway/middleware.ts:186`) and that its
+provider boundary is unusable (`EveAdapterShape` is genuinely provider-neutral
+in its signatures).
+
+One caveat on provenance, since it affects what can be re-checked: the analyses
+read a real t3code checkout, but it was a scratch clone that no longer exists.
+Every **Evie** citation below was verified against this tree and can be checked
+now; the t3code paths are comparative colour and would need a fresh clone to
+confirm. That asymmetry is the right way round — each item is a claim about
+what Evie lacks, and that half is the half that was audited.
+
+### The worst category: surfaces that lie
+
+Not missing features — shipped affordances that report success and do nothing.
+`AGENTS.md` names this exact class ("a lying spinner, and a stale label") as
+what Evie's users notice. Every one of these is live today:
+
+| The lie | Where |
+| --- | --- |
+| The Terminal tab says "Nothing has run in this sandbox yet." forever. There are no PTY sessions at all; `<TerminalView lines={[]} />` is a literal. | `apps/web/src/screens/chat.tsx:111` |
+| ~~**"Always allow for this session"** is contract-only: dropped by the server, never offered by the UI.~~ **Fixed**, and it could not be fixed the obvious way — see below. | `reactors/turn.ts`, `ui/components/approval-card.tsx` |
+| ~~The timeline renders "restored" while the filesystem is untouched.~~ **Fixed.** Restore is implemented, and the row now follows a new `CheckpointRestored` event rather than the mere request. | `reactors/checkpoint.ts` |
+| ~~The tray's only failure affordance says "see Console". Nothing is ever written to a log file.~~ **Fixed.** A rotating `desktop.log` under Evie home carries both the shell and the server child, and the tray reveals it in Finder. | `main/log.ts` |
+| ~~`npx evie` is instructed by the marketing site and by `AGENTS.md`, and no package has a `bin`.~~ **Half fixed.** `apps/server` now has a CLI (`--port`, `--help`) that bundles to a self-contained `dist/evie.mjs` and serves the built web client; it boots and prints a claim URL. Publishing is the remaining half. | `apps/server/src/cli.ts` |
+| ~~The Computer pane's file tree renders nothing, though `computer.list` is implemented and path-safe on the server.~~ **Fixed.** Files lists the bot's directory and folders open on click; Terminal and Browser are still the empty tabs below. | `client-runtime/src/files.ts`, `web/src/components/file-tree.tsx` |
+
+A control that reports success and does nothing is worse than an absent one,
+because the user learns to distrust the ones that work. These are cheap
+relative to everything else here and should go first.
+
+**What fixing the first one turned up, because it constrains the others.**
+eve's `inputResponseSchema` is `z.core.$strict` over exactly `{ requestId,
+optionId, text }`. There is no scope field, and a strict schema *rejects* an
+unknown key rather than ignoring it — so "always allow for this session" can
+never be forwarded to the provider. eve's approval policies (`never()`,
+`once()`, `always()` from `eve/tools/approval`) are per-connection and live in
+the bot's own code; they are not per-answer.
+
+So the grant is Evie's to keep, which on reflection is where it belongs: Evie
+owns the approval surface, and a grant the user can see is a grant the user can
+revoke. It is now an `input_grant` table keyed `(session_id, tool_name)`, written
+when an answer carries `always`, and applied by the turn reactor, which emits an
+ordinary `InputAnswered` scoped `once` rather than calling the adapter directly —
+so a granted approval travels the same path every other answer takes and the
+timeline stays consistent. The card names the tool it is granting, because
+"always allow" over an unnamed action is not a decision anyone can make.
+
+The general lesson for the rest of this list: **check what eve's contract can
+actually carry before designing a feature that assumes it.** `packages/contracts`
+is Evie's wire, not eve's, and the two are not the same shape.
+
+### Gaps that block Evie's own stated pillars
+
+Ranked by which `AGENTS.md` pillar they falsify, because that is the only
+ranking that matters — t3code having something Evie does not is uninteresting
+unless Evie has already promised it.
+
+**Pillar 3, "Remote ready", is the largest hole.** It is not one gap but a
+chain, and every link is missing:
+
+- **No pairing credential.** The `device` table has been there since the first
+  migration (`db/migrations.ts:214-223`) and has zero readers or writers. A
+  second device has no way to obtain access, and `specs/05:198` already
+  requires that pairing have an unpairing.
+- **No environment identity.** No keypair, no stable environment id. Three of
+  the five relay requirements `specs/05:400-425` sets for itself are
+  unsatisfiable without one. This is *days* of work now and a migration after
+  devices exist.
+- **The socket has no cross-origin credential.** Cookie-or-header only, so a
+  tryevie.ai tab can authenticate its `fetch` calls and then fail on `/rpc`,
+  where every frame lives — a browser cannot set a header on a WebSocket, and a
+  cross-site cookie to a private IP is blocked. Evie already has the right
+  pattern and has not applied it here: `grantBlobUrl` mints a short-lived
+  signed token in the query string precisely so a fetch with no cookie still
+  works (`gateway/http.ts:26-52`). The cheapest gap on this list, and it gates
+  the most-repeated product claim.
+- **The client can address exactly one server, fixed at build time**
+  (`web/src/lib/runtime.ts:27-33`). Every other remote gap terminates here: a
+  pairing code has nowhere to be stored and a relay has nothing to route to.
+- **Refusal 1 is unimplemented**, so a non-loopback bind leaves open
+  self-registration as the only way in — the precise scenario `specs/05:186`
+  describes as "a stranger on cafe wifi driving an agent with shell access to
+  your home directory." It is reachable today by hand-editing `bind` in
+  `settings.json`, and it has a second edge: `layer.ts:128-137` skips
+  `ensureLocalOwner` for any non-local mode, so a fresh `lan` boot has *no*
+  principal until the first stranger signs up and becomes owner of a new
+  one-member org — at which point refusal 3, which only fires above one member
+  (`decide.ts:191`), does not stop them selecting `just-bash` either.
+- **Tailscale is named in `AGENTS.md` and implemented nowhere.** `specs/05:393`
+  claims it needs "no configuration beyond binding"; the code contradicts that,
+  because binding is what produces a wrong derived URL and a wrong secure-cookie
+  setting. t3code's version is small: `tailscale status --json` for the MagicDNS
+  name, `tailscale serve` for TLS, then derive the base URL from the served
+  endpoint rather than from the bind string.
+
+**Pillar 4, "Multi-surface".** No installer, no signing, no notarisation — and
+now that `Evie.app` exists, this is the only thing between it and a stranger's
+machine. No `npx evie`. No auto-update, which `specs/04:222-226` makes
+load-bearing for a *correctness* property rather than convenience: "a client is
+never newer than its server" is enforced by a typed refusal whose only
+resolution is that the user updates. And nothing carries a version — every
+workspace package is `0.0.0` — so that refusal is currently terminal.
+
+**Pillar 1, "Open at the core".** There is no CI at all, while `AGENTS.md`
+explicitly delegates the full suite to it. A project that expects forks has no
+automated gate that can tell a contributor their change is green.
+
+**Pillar 2, "Performance without compromise".** The budget is a table, not a
+check, and on the surface most users install first there is no instrument to run
+the promised audit with.
+
+### Genuinely unconsidered
+
+The valuable half of this exercise. Everything above is scheduled somewhere in
+`specs/06`; the following appear in no spec, and two of them are latent
+correctness bugs rather than missing work.
+
+1. **Threads on one bot share one directory.** Per-bot working tree, per-thread
+   checkpoint ref. The moment two threads talk to the same bot — which
+   Phase 2 in `specs/06` makes scope — each `git add -A` sweeps the other's
+   in-flight edits into its own checkpoint, so one thread's diff shows another's
+   files and restoring one silently discards the other's work. Evie need not
+   adopt worktrees, but it needs *an* answer and currently has none.
+2. **Ingestion is dispatch-triggered.** `adapter.attach` has exactly one call
+   site, inside `dispatchTurn`. eve sessions are durable and keep running across
+   an Evie restart, so a restart mid-turn leaves the thread frozen in the UI
+   until someone sends another message — while `specs/01:29` sells the opposite
+   ("any client attaches at `startIndex` and takes over"). The resume cursor is
+   already persisted; only the trigger is missing.
+3. **The provider-neutral vocabulary does not exist.** `specs/02:53` and
+   `EveAdapter.ts:43` both claim "a second provider is a second adapter, not a
+   refactor". The adapter's *interface* is genuinely neutral, but `EveMirrored`
+   stores eve's payload verbatim and the projector switches on eve's shapes, so
+   the read model, the timeline contract, and the event log all speak eve.
+   Decision 001 makes this cost nothing today; it is recorded because the spec
+   currently claims a property the code does not have.
+4. **No model catalog.** `ModelRef` is an unvalidated string. Decision 007 calls
+   the picker "the point of BYOK", and there is nothing to render in it, no way
+   to catch a typo before the turn fails, and nowhere to hang per-model
+   reasoning controls.
+5. **The `Notifier` port cannot address a device.** `deliver(notification) =>
+   Effect<boolean>`, keyed on a `userId`, cannot express fan-out to N registered
+   endpoints, per-endpoint failure, or pruning a dead APNs/FCM token. The
+   reactor's decisions are already right — snooze-aware, replay-silent — and the
+   port shape underneath them is the thing that has to change before any push
+   transport or mobile client is buildable. A contracts decision, not an app
+   one, which is why it belongs here rather than in a mobile phase.
+6. **Presence is socket-lifetime and shape-blind.** No lease TTL, no app state,
+   no client kind. iOS suspends a WebSocket within seconds of backgrounding, so
+   every lock/unlock would read as "client gone / client back" and thrash
+   runtime start-stop — the exact regression class pillar 2 exists to prevent.
+   A contract change, so cheaper before a mobile client than after.
+7. **Attachments have a download half and no upload half.** `SendMessage`
+   presumes a `BlobId` that already exists, and nothing can create one. The
+   frame budget (`specs/03:108`) says bytes never cross the RPC socket, which
+   points at an upload route — specified nowhere.
+8. **No file-change summary per turn.** The checkpoint reactor holds two shas
+   and stops. "3 files changed, +42 −7" is the glanceable answer to "what did
+   this bot do while I was away", it is the prerequisite for any diff UI, and
+   `git diff --numstat` is already reachable from the reactor's own `git()`
+   helper. Highest value per line in this document.
+9. **Operational blind spots on the desktop app**: no log file, window geometry
+   discarded every launch, no renderer-crash recovery (a tray-resident app is
+   precisely where an OOM'd renderer sits blank in front of a healthy server),
+   and `safeStorage` untouched, so every platform gets the Linux 0600 fallback
+   while `specs/04:220` states keychain behaviour as shipped fact.
+
+### Where Evie is ahead, and where it is deliberately smaller
+
+Recorded so the list above is not mistaken for a verdict.
+
+Evie's local-login credential is strictly tighter — single-use, 60 seconds,
+in-memory. Its contract-version handshake is a hard typed refusal where
+t3code's is a warning banner. Its reactors are durable subscriptions with a
+persisted cursor advanced in the same transaction as the write, which makes
+"work continues" survive a crash; t3code's checkpoint equivalent is not durable
+in that way. Its stream cursor is absolute and durable rather than an opaque
+resume blob. Turns carry the acting member's identity into the provider as a
+short-lived JWT. Runtimes are reference-counted leases rather than a periodic
+reaper. And the desktop shell's orphan prevention — watching for *reparenting*
+rather than polling a pid — is the better mechanism.
+
+Two divergences are deliberate and should not be read as debt. t3code drives
+five agent harnesses; decision 001 pins Evie to one, and the price is only ever
+paid on the day a second is wanted. t3code carries an entire source-control
+product — pull requests, review, VCS — alongside its checkpoints; Evie's scope
+discipline there is the right call, and item 7 above is the small piece worth
+taking from it.
+
 ## What to build next, in order
 
-1. **Commit what exists.** ~20,000 lines with no history is the single biggest
-   risk in the repo.
-2. **Make a bot able to answer.** In one pass: a settings screen that calls
-   `setSecret`, and `Secrets.valueForSpawn` wired into `Supervisor.spawn`. Then
-   write the adapter's recorded-stream fixture so the 868 lines nobody has run
-   have a test.
-3. **Fix the cold-load bug.** Call `bots.list`/`threads.list` on connect and
-   derive onboarding from settled state. Today the app forgets your bots.
-4. **`apps/desktop`**, to the design above. macOS, tray-resident, unsigned.
-5. **The model picker.** Decision 007 is currently violated by the client.
-6. **The outright bugs table**, top to bottom. Most are one-line fixes; the
-   broken `./eve` export and the dropped avatar are minutes each.
-7. **Refusals 1 and 2**, before anyone is invited to anything.
-8. **A CI workflow, and `--max-warnings 0`.** Everything above is easier to keep
-   once something other than a person is checking.
+Reordered again after a pass of implementation. Items 2 and 4 of the previous
+list are done, and the BYOK gap has narrowed to one screen.
+
+1. **Commit what exists.** A working tree this size with no history is the
+   single biggest risk in the repo, and it has only grown.
+2. **A settings screen that calls `setSecret`.** The entire remaining distance
+   between Evie and a bot that answers. The server half landed: a stored key now
+   reaches the runtime, bot scope beats org, and stored beats the operator's
+   shell. There is nowhere to type one.
+3. **The adapter's recorded-stream fixture.** 868 lines nobody has run, and the
+   riskiest invariants in the repo live in them -- exactly-once mirroring and
+   scope discipline both fail silently.
+4. **The model picker**, which needs a catalog behind it. Decision 007 is still
+   violated by the client and `ModelRef` is still an unvalidated string.
+5. **The two latent correctness bugs**, before the features that trip over them
+   ship: per-thread workspace isolation, and reattach-on-boot.
+6. **A reactor for `SecretSet` / `SecretRemoved`.** Rotation is specified to
+   restart affected runtimes; nothing listens, so a rotated key does not apply
+   until the runtime idle-stops. The hook is one call to `RuntimeControl.stop`.
+7. **The rest of the outright bugs table.**
+8. **Refusals 1 and 2**, before anyone is invited to anything -- and with them
+   the environment keypair, which is days of work now and a migration later.
+9. **Distribution.** A signing identity, notarisation, and publishing the CLI.
+   `npx evie` builds and runs today; nothing puts it on a registry.
+10. **Then remote, as a chain rather than a feature**: environment identity →
+    device pairing and revocation → a socket credential that survives
+    cross-origin → an environment catalog on the client. Nothing in the middle
+    of that list works without the ones before it.
+
+Struck since this was first written: the cold-load bug, `apps/desktop`, the
+app's identity as a real bundle, CI, a lint that can fail, the desktop log,
+the file tree, checkpoint restore and the per-turn file summary, session
+approval grants, and key injection into the runtime.
