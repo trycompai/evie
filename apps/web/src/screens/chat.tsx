@@ -81,6 +81,7 @@ export function ThreadPane({
           shape={mark.shape}
           tone={mark.tone}
           state={thread.status}
+          health={bot.health}
           computerOpen={computerOpen}
           onToggleComputer={() => setComputerOpen((open) => !open)}
         />

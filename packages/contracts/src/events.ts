@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { NetworkPolicy, SandboxBackend } from "./bot.ts"
 import {
   BotId,
@@ -253,10 +253,21 @@ export const CheckpointWritten = Schema.TaggedStruct("CheckpointWritten", {
    * written rather than by re-running git per render. This is the glanceable
    * answer to "what changed while I was away" -- without it a user has to
    * audit a diff by hand to learn whether anything happened at all.
+   *
+   * Defaulted on decode, and that is not politeness -- it is the rule this
+   * whole file lives under. **An event that was written once must decode
+   * forever.** These three arrived after the first checkpoints did, as a
+   * required field, and every older row stopped decoding: `readAggregate`
+   * threw, so every command that folded an aggregate holding one died. The
+   * blast radius was the whole organization, because the org aggregate is
+   * every product event in it -- one checkpoint from one thread in January
+   * meant no bot could be created in March, with nothing to see but a failed
+   * request. Zero reads honestly here, exactly as it does in the `checkpoint`
+   * table's own migration: "we did not measure this one".
    */
-  files: Schema.Int,
-  insertions: Schema.Int,
-  deletions: Schema.Int,
+  files: Schema.Int.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
+  insertions: Schema.Int.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
+  deletions: Schema.Int.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
 })
 /**
  * The files are back. Distinct from `CheckpointRestoreRequested`, which is only

@@ -1,5 +1,7 @@
+import type { BotHealth } from "@evie/contracts/bot"
 import { cn } from "@evie/ui/lib/utils"
 import { BotMark, type BotShape, type BotTone } from "@evie/ui/components/bot-mark"
+import { BotStatusDot } from "@evie/ui/components/bot-status-dot"
 import { MonitorIcon } from "@evie/ui/components/icon"
 import { StatusChip, type ThreadState } from "@evie/ui/components/status-chip"
 
@@ -17,6 +19,11 @@ export interface ThreadHeaderProps {
   readonly shape?: BotShape
   readonly tone?: BotTone
   readonly state: ThreadState
+  /**
+   * The bot's runtime health. Omitted only where there is no bot to speak of
+   * (the gallery's bare header); a real thread always has one.
+   */
+  readonly health?: BotHealth
   /** The context meter, when the window is past half full. */
   readonly meter?: React.ReactNode
   readonly computerOpen?: boolean
@@ -28,6 +35,7 @@ export function ThreadHeader({
   shape,
   tone,
   state,
+  health,
   meter,
   computerOpen = false,
   onToggleComputer,
@@ -43,6 +51,7 @@ export function ThreadHeader({
         <BotMark shape={shape} tone={tone} size={18} />
       </span>
       <h1 className="truncate text-ui font-medium text-fg">{name}</h1>
+      {health !== undefined && <BotStatusDot health={health} />}
       <StatusChip state={state} className="shrink-0" />
       <div className="min-w-0 flex-1" />
       {meter}

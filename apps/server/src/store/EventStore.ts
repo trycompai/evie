@@ -4,6 +4,7 @@ import { ulid } from "@evie/shared/ulid"
 import { Context, Effect, Layer, Schema } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { SqlError } from "effect/unstable/sql/SqlError"
+import { AGGREGATE_EVENTS } from "../domain/state.ts"
 
 /**
  * The append-only event log.
@@ -117,12 +118,26 @@ const make = Effect.gen(function* () {
     select max(seq) as max_seq from event`
   let nextSeq = Number(seeded[0]?.max_seq ?? 0) + 1
 
-  const aggregateFilter = (aggregate: AggregateKey) =>
-    aggregate.kind === "bot"
-      ? sql`bot_id = ${aggregate.id}`
-      : aggregate.kind === "thread"
-        ? sql`thread_id = ${aggregate.id}`
-        : sql`org_id = ${aggregate.id}`
+  /**
+   * The rows that make up one aggregate: scoped by the column that names it
+   * AND by the event types its fold consumes (`AGGREGATE_EVENTS`).
+   *
+   * The type filter is what keeps an aggregate the size of its own decisions.
+   * Without it the org aggregate was every product event in the organization,
+   * so a turn settling in one thread bumped the version a `CreateBot` in
+   * another had folded at -- one retry, then a refusal the user reads as "I
+   * cannot create bots". It also meant every command in the organization had
+   * to decode every row in it.
+   */
+  const aggregateFilter = (aggregate: AggregateKey) => {
+    const scope =
+      aggregate.kind === "bot"
+        ? sql`bot_id = ${aggregate.id}`
+        : aggregate.kind === "thread"
+          ? sql`thread_id = ${aggregate.id}`
+          : sql`org_id = ${aggregate.id}`
+    return sql`${scope} and ${sql.in("type", AGGREGATE_EVENTS[aggregate.kind])}`
+  }
 
   const currentVersion = Effect.fn("EventStore.currentVersion")(function* (
     aggregate: AggregateKey,
@@ -198,13 +213,51 @@ const make = Effect.gen(function* () {
     )
   })
 
+  /**
+   * Decodes what this build understands and reports what it does not.
+   *
+   * A stored event outlives the code that wrote it, so one row the current
+   * schema rejects is always possible -- and `decodeUnknownSync` throws, which
+   * made that row fatal to every read that touched it. A required field added
+   * to `CheckpointWritten` was enough: from then on, every command folding an
+   * aggregate that held one older checkpoint died, the organization could not
+   * create a bot, and the affected conversations could not be sent to. Nothing
+   * anywhere said why.
+   *
+   * Skipping is the lesser wrong and the one this codebase already chooses on
+   * every other read path. It is not free -- a decision folded without an
+   * event it should have seen is a decision made on incomplete state -- so it
+   * is logged at error, loudly, with the row that did it. The real fix for a
+   * skipped row is always the schema: an event that was written once has to
+   * decode forever.
+   */
+  const decodeRows = (rows: ReadonlyArray<EventRow>) =>
+    Effect.gen(function* () {
+      const events: Array<StoredEvent> = []
+      for (const row of rows) {
+        try {
+          events.push(rowToStored(row))
+        } catch (error) {
+          yield* Effect.logError("EventStore: skipping an event this build cannot decode", {
+            seq: Number(row.seq),
+            type: row.type,
+            reason: String(error),
+          })
+        }
+      }
+      return events
+    })
+
   const readAggregate: EventStoreShape["readAggregate"] = Effect.fn("EventStore.readAggregate")(
     function* (aggregate: AggregateKey) {
       const rows = yield* sql<EventRow>`
         select * from event
         where session_id = '' and ${aggregateFilter(aggregate)}
         order by seq asc`
-      return { events: rows.map(rowToStored), version: rows.length }
+      // The version counts the rows the aggregate HAS, not the ones this build
+      // could read: a skipped row still occupies its position, and a version
+      // that quietly shrank would let a stale decision append over a fresh one.
+      return { events: yield* decodeRows(rows), version: rows.length }
     },
   )
 
@@ -212,7 +265,7 @@ const make = Effect.gen(function* () {
     function* (fromSeq: number, limit: number) {
       const rows = yield* sql<EventRow>`
         select * from event where seq > ${fromSeq} order by seq asc limit ${limit}`
-      return rows.map(rowToStored)
+      return yield* decodeRows(rows)
     },
   )
 

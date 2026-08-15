@@ -114,15 +114,51 @@ is parked waiting for an answer from you — if the app looks busy, it is busy.
 
 Before a bot does something consequential it asks, right there in the
 conversation rather than in a dialog that steals your place. You can approve or
-say no. Saying no is not an error; the bot carries on. Each choice shows a
-letter — press it to answer from the keyboard once the question has focus;
-typing in the message box never answers a question.
+say no. Saying no is not an error; the bot carries on.
+
+When a question arrives and you are not mid-message, it takes the keyboard.
+Press a choice's letter to answer, arrow between choices and press Enter, or
+just start typing — anything that isn't a choice letter drops you into the
+message box with that character already there, and a typed reply answers the
+question in your own words. Escape puts your cursor back in the message box.
+If you were already drafting something, nothing moves; finish your thought.
+
+When the answer would let the bot *do* something — run a tool, touch your
+files — there is a beat to change your mind: the card shows what you chose
+with an **Undo**, and only sends it a moment later. Plain questions send
+immediately.
 
 If it is asking about a tool you are happy for it to keep using, tick **Always
 allow … for this session** before you answer. The next time that same tool
 comes up in the same conversation, it goes ahead without asking. The grant is
 exactly as narrow as it sounds: one tool, one session. Start a new session and
 it asks again.
+
+## Knowing your bot is still there
+
+Next to the bot's name at the top of a conversation there is a small dot.
+
+- **Green** — it is up: either ready, or working on something right now.
+- **Amber** — it is starting, or reconnecting after a hiccup.
+- **Grey** — it is asleep. Hover the dot and it says so.
+- **Red** — something is wrong, and hovering says what.
+
+Grey is the one worth explaining, because it looks like a problem and is not.
+A bot you are not talking to shuts its machine down after a while instead of
+burning your laptop's battery to sit idle. Nothing is lost when it does — the
+conversation, the files it has been working on, and everything it remembers
+are all on disk. Your next message wakes it up.
+
+While you have a conversation open, the bot behind it is kept awake, so the
+thing you are actually looking at does not go to sleep under you.
+
+If a bot was mid-answer when Evie restarted, opening the conversation picks the
+answer back up: the work carried on without Evie watching, and reopening the
+thread is what reconnects to it.
+
+A bot in the sidebar shows a dot only when something needs you or something is
+wrong — a green dot on every row would be noise. The full status lives in the
+conversation.
 
 ## Reloading keeps your place
 

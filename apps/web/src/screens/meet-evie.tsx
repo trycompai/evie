@@ -29,9 +29,15 @@ export function MeetEvieScreen({ onNext, onSkip, desktop = false }: MeetEvieScre
         </>
       )}
 
-      <h1 className="text-page-title tracking-section text-fg">Meet Evie</h1>
+      {/*
+        First-run only, so this is where the delight budget lives: title, then
+        the mark and specimen, then the buttons, each 60ms behind the last.
+        One shot on mount; the window controls stay out of it -- chrome does
+        not fade in.
+      */}
+      <h1 className="evie-enter text-page-title tracking-section text-fg">Meet Evie</h1>
 
-      <div className="flex flex-col items-center gap-8">
+      <div className="evie-enter flex flex-col items-center gap-8 [animation-delay:60ms]">
         <BotMark size={88} tone={1} label="Evie" />
 
         <div className="flex w-[620px] max-w-full flex-col gap-3.5 rounded-bubble bg-raised px-[18px] py-4">
@@ -52,7 +58,7 @@ export function MeetEvieScreen({ onNext, onSkip, desktop = false }: MeetEvieScre
         </div>
       </div>
 
-      <div className="flex w-[340px] flex-col items-center gap-2.5">
+      <div className="evie-enter flex w-[340px] flex-col items-center gap-2.5 [animation-delay:120ms]">
         <ActionButton block onClick={onNext}>
           Next
         </ActionButton>

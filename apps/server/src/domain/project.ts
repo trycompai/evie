@@ -502,6 +502,25 @@ export const apply = (model: ReadModel, event: StoredEvent): ReadonlyArray<RowCh
     /* --- messages and turns --- */
     case "MessageSent": {
       if (event.actorUserId === null) return []
+      const changes: RowChange[] = []
+      /*
+       * A message sent while a question is pending overtakes it: the turn
+       * reactor dispatches with `turnPolicy: "steer"`, so the bot abandons the
+       * request and takes the reply as the answer, in the user's own words.
+       * A card left pending after that invites a second answer to a question
+       * the bot has already moved past -- the same sweep `turn.cancelled`
+       * does, for the same reason.
+       */
+      const timeline = model.timelines.get(data.threadId)
+      if (timeline !== undefined) {
+        for (const row of timeline.items.values()) {
+          if (row.item.kind === "input" && row.item.state === "pending") {
+            changes.push(
+              putItem(model, data.threadId, row.actorUserId, { ...row.item, state: "cancelled" }),
+            )
+          }
+        }
+      }
       const parts: Part[] = [{ type: "text", text: data.text }]
       for (const blobId of data.attachments) {
         // Media type lives on the blob row; the item carries the reference.
@@ -511,7 +530,7 @@ export const apply = (model: ReadModel, event: StoredEvent): ReadonlyArray<RowCh
           blobId: blobId as BlobId,
         })
       }
-      return [
+      changes.push(
         putItem(model, data.threadId, event.actorUserId, {
           kind: "user",
           id: event.id,
@@ -521,7 +540,8 @@ export const apply = (model: ReadModel, event: StoredEvent): ReadonlyArray<RowCh
           parts,
         }),
         ...touchThread(model, data.threadId, event.at),
-      ]
+      )
+      return changes
     }
     case "InputAnswered": {
       const timeline = model.timelines.get(data.threadId)

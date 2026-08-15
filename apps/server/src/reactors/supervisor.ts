@@ -11,6 +11,7 @@ import { Context, Effect, FiberMap, Layer } from "effect"
 import type { SqlError } from "effect/unstable/sql/SqlError"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { EvieConfig } from "../config.ts"
+import { Hub } from "../gateway/hub.ts"
 import { Scaffold } from "../provider/scaffold.ts"
 import { EventStore } from "../store/EventStore.ts"
 import { deriveUlid, ReactorWake, reactorLayer, type Commit } from "./runtime.ts"
@@ -60,8 +61,7 @@ const tail = (detail: string, lines = 12): ReadonlyArray<string> =>
 
 /**
  * Whether any client currently subscribes to one of the bot's threads. Gateway
- * state, not event state, so it arrives as its own narrow service. Until the
- * gateway lands, `layerNone` makes idle-stop depend on turns alone.
+ * state, not event state, so it arrives as its own narrow service.
  */
 export interface ClientPresenceShape {
   readonly isAttached: (botId: BotId) => Effect.Effect<boolean>
@@ -70,9 +70,57 @@ export interface ClientPresenceShape {
 export class ClientPresence extends Context.Service<ClientPresence, ClientPresenceShape>()(
   "ClientPresence",
 ) {
+  /**
+   * Nobody is ever watching. For tests that are not about presence, and for a
+   * headless boot with no gateway; idle-stop then depends on turns alone.
+   *
+   * Not for the real server. Wired here, this layer is the whole of the "my
+   * agent stops working if I leave it open" bug: `isAttached` answers false
+   * while the user is looking straight at the thread, so the idle timer fires
+   * on a conversation in active use and the next message pays a cold start --
+   * or, before `Supervisor.acquire` stopped caching failed starts, never
+   * arrived at all.
+   */
   static readonly layerNone = Layer.succeed(ClientPresence, {
     isAttached: () => Effect.succeed(false),
   })
+
+  /**
+   * The real one: a bot is attached when a client is subscribed to any thread
+   * it participates in.
+   *
+   * Read straight from the hub's live subscriber set rather than from a
+   * presence table, so it cannot disagree with who the server is actually
+   * streaming to, and so a client that vanishes without saying goodbye stops
+   * counting the moment its stream unwinds. Costs one indexed query per bot
+   * per idle window -- the loop runs every `idleStopMinutes`, not on any hot
+   * path.
+   */
+  static readonly layerHub = Layer.effect(ClientPresence)(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const hub = yield* Hub
+      return {
+        isAttached: (botId) =>
+          Effect.gen(function* () {
+            const watched = hub.watchedThreads()
+            if (watched.size === 0) return false
+            const rows = yield* sql<{ thread_id: string }>`
+              select thread_id from thread_participant where bot_id = ${botId}`
+            return rows.some((row) => watched.has(row.thread_id))
+          }).pipe(
+            // Presence is an optimisation, not a decision the log depends on.
+            // A failed read must not wedge the idle loop; "nobody is watching"
+            // is the same answer this returned for the whole of its life so far.
+            Effect.catchCause((cause) =>
+              Effect.logWarning("ClientPresence: attachment lookup failed", { botId }, cause).pipe(
+                Effect.as(false),
+              ),
+            ),
+          ),
+      }
+    }),
+  )
 }
 
 const make = Effect.gen(function* () {
@@ -86,6 +134,67 @@ const make = Effect.gen(function* () {
   const timers = yield* FiberMap.make<BotId>()
   const startedAt = Date.now()
   const idleMillis = config.idleStopMinutes * 60_000
+
+  /**
+   * Nothing is running yet, whatever the log last said.
+   *
+   * Runtime health is projected from `RuntimeReady` / `RuntimeStopped`, and
+   * runtimes do not survive the process -- so a server that stops while a bot
+   * is warm leaves `ready` as the last word on it forever. On the next boot
+   * every bot that was ever used claims to be up, with no runtime behind any of
+   * them. That is the stale label `AGENTS.md` warns about, and it is worst
+   * exactly where it is most visible: the status dot beside the bot's name goes
+   * green on a bot that is not there.
+   *
+   * The honest repair is an event, not a patched column: the runtime *did*
+   * stop, when this process's predecessor did, and `shutdown` is the reason.
+   * Saying so through the log means the projection, the rail and the dot all
+   * learn it the same way they learn everything else.
+   *
+   * A fresh id per boot on purpose. This runs once per process rather than per
+   * event, so it is never replayed -- and a derived id would be swallowed as a
+   * duplicate on the second restart, which is precisely when it would be
+   * needed again.
+   */
+  const runningKinds = new Set(["ready", "busy", "starting", "restarting"])
+  yield* Effect.gen(function* () {
+    const bots = yield* sql<{ id: string; org_id: string; health: string }>`
+      select id, org_id, health from bot where archived_at is null`
+    let cleared = 0
+    for (const row of bots) {
+      // The column predates the first health write, so it can still be the
+      // migration's bare 'idle' rather than JSON.
+      const kind = row.health.startsWith("{")
+        ? ((JSON.parse(row.health) as { kind?: string }).kind ?? "idle")
+        : row.health
+      // `unhealthy` is left alone: a bot whose project never installed is
+      // still broken after a restart, and its reason is still the reason.
+      if (!runningKinds.has(kind)) continue
+      yield* store.append(
+        [
+          {
+            data: RuntimeStopped.make({ botId: row.id as BotId, reason: "shutdown" }),
+            orgId: row.org_id,
+            botId: row.id,
+          },
+        ],
+        { aggregate: { kind: "bot", id: row.id } },
+      )
+      cleared += 1
+    }
+    if (cleared === 0) return
+    yield* Effect.logInfo("SupervisorReactor: cleared runtime health left over by a previous process", {
+      bots: cleared,
+    })
+    yield* wake.notify
+  }).pipe(
+    // A boot that cannot tidy the last one's labels is still a boot worth
+    // having. The cost of failing here is a stale chip; the cost of failing
+    // the layer is no server.
+    Effect.catchCause((cause) =>
+      Effect.logError("SupervisorReactor: could not clear stale runtime health", cause),
+    ),
+  )
 
   const activeTurnCount = Effect.fn("SupervisorReactor.activeTurnCount")(function* (
     botId: BotId,

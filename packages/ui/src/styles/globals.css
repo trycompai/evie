@@ -142,6 +142,15 @@
   --leading-page-title: 48px;
   --leading-display: 56px;
 
+  /* --- motion ------------------------------------------------------------
+   * The app's two curves, promoted from message-scroller so every surface
+   * shares one vocabulary. They deliberately replace Tailwind's built-in
+   * `ease-out` / `ease-in` utilities: the built-ins are too weak to read.
+   * Enter with --ease-out; --ease-in is for exits only, never entrances.
+   */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+
   /* --- shape ------------------------------------------------------------ */
   --radius-small: 6px;
   --radius-default: 8px;
@@ -330,6 +339,9 @@
   --tracking-section: var(--tracking-section);
   --tracking-subsection: var(--tracking-subsection);
 
+  --ease-out: var(--ease-out);
+  --ease-in: var(--ease-in);
+
   --radius-small: var(--radius-small);
   --radius-default: var(--radius-default);
   --radius-bubble: var(--radius-bubble);
@@ -392,6 +404,23 @@
   .evie-thinking::after {
     content: "";
     animation: evie-ellipsis 1s steps(4, jump-none) infinite;
+  }
+
+  /*
+   * One-shot entrance for rare, first-run surfaces (onboarding). Plays once on
+   * mount and stops, so it clears the no-repaint rule. `backwards` holds the
+   * hidden state through a stagger delay; stagger with
+   * `[animation-delay:60ms]` steps and never gate interaction on it.
+   */
+  .evie-enter {
+    animation: evie-enter 400ms var(--ease-out) backwards;
+  }
+}
+
+@keyframes evie-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
   }
 }
 

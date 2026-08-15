@@ -331,7 +331,8 @@ caller reaches:
 | Thing | Reality |
 | --- | --- |
 | `Notifier` | **Transport built.** `Notifier.layerStdout`, selected by `EVIE_NOTIFY_STDOUT`, writes one line per notification for the desktop shell to deliver natively. A headless boot still gets `layerNoop`. |
-| `ClientPresence` | `layerNone`: `isAttached` always false, so a runtime idle-stops after 10 minutes even with a client watching. `presence.set` writes an open-thread set that nothing reads. |
+| Runtime health after a restart | ~~Every bot the log last called `ready` claimed to be up on the next boot, with no runtime behind any of them.~~ **Fixed.** Health is projected from `RuntimeReady` / `RuntimeStopped` and runtimes do not outlive the process, so the supervisor reactor now appends `RuntimeStopped{reason: "shutdown"}` for anything still marked running, before the gateway listens. An event rather than a patched column, because the runtime genuinely did stop. `unhealthy` is left standing — a project that never installed is still broken. Found by restarting a real server; three bots, all `ready`, none running. |
+| `ClientPresence` | ~~`layerNone`: `isAttached` always false.~~ **Wired.** `ClientPresence.layerHub` answers from the hub's live thread-subscriber set, so a bot whose thread someone has open is not idle. Read from subscriptions rather than from `presence.set` deliberately: a subscription withdraws itself by unwinding its own scope, so a closed tab or a dropped socket cannot leave a runtime warm forever. `presence.set`'s open-thread set is still read by nothing. |
 | Plugins catalogue | `plugins.catalog` returns `listings: []` **on the server** and the app passes `listings={[]}` anyway. `ConnectService` writes a DB row and **never writes `agent/connections/<name>.ts`**, so a "connected" service has no effect on the agent. |
 | Blobs | `blob`/`blob_ref` tables, `blobs.grant`, and `GET /blob/:id` with the org check are all built — and **nothing ever inserts a blob**. There is no upload path, so no grant can succeed. Tool truncation sets `truncated: true` with no `blobId`, so a truncated payload can never be expanded. `SendMessage.attachments` are dropped at dispatch anyway. |
 | `SetInstructions` | The event now carries the text, so the information survives — but still no reactor consumes it and the scaffold never rewrites `instructions.md`. Half fixed. |
@@ -380,8 +381,14 @@ entries have been closed:
   crash-recovery test (which the roadmap calls "the test that keeps
   work-continues true"), the supervisor leak test, and the adapter
   recorded-stream fixture. The decider and concurrency tests exist and are good.
-- **Nothing starts the server.** No integration test, no socket, no RPC exercised
-  end to end in CI-able form.
+- **Nothing starts the server *in CI*.** `apps/server/e2e-driver.mts` now does it
+  by hand — boots against a scratch `EVIE_HOME`, mints a claim through the
+  launcher route, and drives real MsgPack RPC over a real socket: create bots,
+  open threads, send messages, read the timeline back, restart, read it back
+  again. It found two defects nothing else did (see below). It is deliberately
+  *not* a `test` task: provisioning runs a real `npm install`, and a bot cannot
+  answer without a gateway key, so it needs network and a credential. Making it
+  CI-able means faking eve, which is the recorded-stream fixture above.
 - **The `EvieEvent` union is not round-trip tested**, though every other wire type
   is — so the rc tripwire has a hole exactly where the log lives.
 - **The perf budget is a table, not a check.** Every number in `specs/04` is
@@ -564,12 +571,20 @@ correctness bugs rather than missing work.
    in-flight edits into its own checkpoint, so one thread's diff shows another's
    files and restoring one silently discards the other's work. Evie need not
    adopt worktrees, but it needs *an* answer and currently has none.
-2. **Ingestion is dispatch-triggered.** `adapter.attach` has exactly one call
-   site, inside `dispatchTurn`. eve sessions are durable and keep running across
-   an Evie restart, so a restart mid-turn leaves the thread frozen in the UI
-   until someone sends another message — while `specs/01:29` sells the opposite
-   ("any client attaches at `startIndex` and takes over"). The resume cursor is
-   already persisted; only the trigger is missing.
+2. ~~**Ingestion is dispatch-triggered.**~~ **Fixed.** `adapter.attach` had one
+   call site, inside `dispatchTurn`. eve sessions are durable and keep running
+   across an Evie restart, so a restart mid-turn left the thread frozen in the
+   UI until someone sent another message — while `specs/01:29` sells the
+   opposite ("any client attaches at `startIndex` and takes over"). The resume
+   cursor was already persisted; only the trigger was missing.
+
+   The trigger is **opening the thread** (`TurnDispatch.resumeThread`, called
+   from `threads.subscribe`), not a boot sweep. A sweep would start a runtime
+   for every unsettled turn in the database at once, and unsettled turns are
+   exactly what a crash leaves behind — so the cheapest moment after a crash
+   would have been the most expensive. Resuming when a client actually looks is
+   bounded by attention, idempotent, and a no-op on the subscriptions where
+   nothing is running, which is nearly all of them.
 3. **The provider-neutral vocabulary does not exist.** `specs/02:53` and
    `EveAdapter.ts:43` both claim "a second provider is a second adapter, not a
    refactor". The adapter's *interface* is genuinely neutral, but `EveMirrored`
@@ -646,8 +661,8 @@ list are done, and the BYOK gap has narrowed to one screen.
    scope discipline both fail silently.
 4. **The model picker**, which needs a catalog behind it. Decision 007 is still
    violated by the client and `ModelRef` is still an unvalidated string.
-5. **The two latent correctness bugs**, before the features that trip over them
-   ship: per-thread workspace isolation, and reattach-on-boot.
+5. **Per-thread workspace isolation**, before the features that trip over it
+   ship. (Reattach is done -- resuming on subscribe, see above.)
 6. **A reactor for `SecretSet` / `SecretRemoved`.** Rotation is specified to
    restart affected runtimes; nothing listens, so a rotated key does not apply
    until the runtime idle-stops. The hook is one call to `RuntimeControl.stop`.
@@ -661,7 +676,10 @@ list are done, and the BYOK gap has narrowed to one screen.
     cross-origin → an environment catalog on the client. Nothing in the middle
     of that list works without the ones before it.
 
-Struck since this was first written: the cold-load bug, `apps/desktop`, the
+Struck since this was first written: presence and the idle timer that fired
+under an open conversation, ingestion that never resumed after a restart,
+runtime health that survived the runtime, the
+cold-load bug, `apps/desktop`, the
 app's identity as a real bundle, CI, a lint that can fail, the desktop log,
 the file tree, checkpoint restore and the per-turn file summary, session
 approval grants, and key injection into the runtime.

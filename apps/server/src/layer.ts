@@ -134,7 +134,9 @@ const ReactorsLive = Layer.mergeAll(
       EventStoreLive,
       WakeLive,
       RuntimeControlL,
-      ClientPresence.layerNone,
+      // Real presence, not `layerNone`: a thread someone is watching keeps its
+      // bot warm, so the idle timer cannot fire on a conversation in use.
+      ClientPresence.layerHub.pipe(Layer.provide([DbLive, HubLive])),
       ConfigLive,
       ScaffoldLive,
     ]),
@@ -145,7 +147,18 @@ const ReactorsLive = Layer.mergeAll(
 
 const GatewayReady = GatewayLive.pipe(
   Layer.provide(GatewayAuthLive.pipe(Layer.provide([AuthLive, DbLive]))),
-  Layer.provide([ConfigLive, DbLive, EventStoreLive, HubLive, WakeLive, SecretsLive, AuthLive]),
+  // `TurnDispatch` so opening a thread can take over a turn that outlived a
+  // restart -- see `resumeThread`.
+  Layer.provide([
+    ConfigLive,
+    DbLive,
+    EventStoreLive,
+    HubLive,
+    WakeLive,
+    SecretsLive,
+    AuthLive,
+    TurnDispatchL,
+  ]),
   Layer.provide(ReactorsLive),
 )
 

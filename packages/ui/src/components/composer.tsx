@@ -105,6 +105,7 @@ export function Composer({
           aria-label="Attach"
           className={cn(
             "flex size-9 shrink-0 items-center justify-center self-end rounded-full bg-raised-strong text-fg",
+            "transition-[opacity,scale] duration-150 ease-out active:scale-[0.97]",
             "hover:opacity-80 focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
           )}
         >
@@ -116,6 +117,15 @@ export function Composer({
           value={value}
           disabled={disabled}
           placeholder={placeholder}
+          /*
+           * The handshake with `ApprovalCard`: while this box is EMPTY, a bare
+           * letter answers a pending question instead of typing, because after
+           * sending a message focus lives here and "press A" has to mean
+           * something. One typed character revokes it -- a draft owns its
+           * letters. Only the composer carries this attribute; no other field
+           * ever gives its keystrokes away.
+           */
+          data-evie-composer=""
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           onCompositionStart={() => setComposing(true)}
@@ -133,6 +143,7 @@ export function Composer({
           disabled={disabled && !canStop}
           className={cn(
             "flex size-9 shrink-0 items-center justify-center self-end rounded-full bg-fg text-surface",
+            "transition-[opacity,scale] duration-150 ease-out active:scale-[0.97]",
             "hover:opacity-90 focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
             "disabled:opacity-40",
           )}

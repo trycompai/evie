@@ -17,7 +17,8 @@ import { cva, type VariantProps } from "class-variance-authority"
 const actionButton = cva(
   cn(
     "inline-flex shrink-0 items-center justify-center gap-2 text-ui font-medium whitespace-nowrap select-none",
-    "transition-opacity focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
+    "transition-[opacity,scale] duration-150 ease-out active:scale-[0.97]",
+    "focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
     "disabled:pointer-events-none disabled:opacity-40",
   ),
   {

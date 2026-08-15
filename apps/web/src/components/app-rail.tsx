@@ -102,7 +102,7 @@ export function AppRail({
                 shape={mark?.shape}
                 tone={mark?.tone}
                 active={thread.id === activeThreadId}
-                health={rowHealth(thread)}
+                health={rowHealth(thread, bot)}
                 onSelect={() => onSelectThread(thread.id)}
               />
             )
@@ -120,8 +120,19 @@ export const railName = (thread: Thread, bots: ReadonlyMap<string, Bot>): string
   return names.length <= 1 ? (names[0] ?? "Untitled") : names.join(" & ")
 }
 
-/** Only surfaces a dot when something is working or wrong. Green for "fine" is noise. */
-const rowHealth = (thread: Thread) => {
+/**
+ * Only surfaces a dot when something is working or wrong. Green for "fine" is
+ * noise in a list you scan -- the positive "this agent is up" indicator belongs
+ * in the header, on the one bot you are looking at (`BotStatusDot`).
+ *
+ * A bot whose runtime is unhealthy still gets a dot here, because that is the
+ * case the rule was hiding: create four bots, watch one fail its install, and
+ * the rail said nothing at all -- the thread's own status is `ready`, since
+ * nothing has been asked of it yet. "Wrong" has to include the bot, not just
+ * the conversation.
+ */
+const rowHealth = (thread: Thread, bot: Bot | undefined) => {
+  if (bot?.health.kind === "unhealthy") return "unhealthy" as const
   switch (thread.status.kind) {
     case "waitingOnYou":
     case "waitingOnSignIn":

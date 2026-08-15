@@ -167,6 +167,90 @@ describe("EventStore.append", () => {
     expect(count).toBe(1)
   })
 
+  /*
+   * The org aggregate is the organization's *decisions*, not its traffic.
+   *
+   * It used to be every product event carrying the org id -- so a turn
+   * settling in one thread moved the version a `CreateBot` had folded at, the
+   * append conflicted, and after the single retry the command failed. With a
+   * bot streaming, which is the normal state of a working Evie, creating
+   * another bot was effectively impossible.
+   */
+  it("does not move the org's version when a thread has activity", async () => {
+    const threadId = ulid()
+    const result = await run(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        const org = { kind: "org" as const, id: orgId }
+        const before = yield* store.readAggregate(org)
+
+        // A turn's worth of traffic in some thread of the same org.
+        yield* store.append(
+          [
+            {
+              data: {
+                _tag: "TurnSettled",
+                threadId,
+                botId: ulid(),
+                turnId: ulid(),
+                outcome: "completed",
+              } as unknown as EvieEvent,
+              orgId,
+              threadId,
+            },
+          ],
+          { aggregate: { kind: "thread", id: threadId } },
+        )
+
+        const after = yield* store.readAggregate(org)
+        // And a bot creation still lands at the version it folded at.
+        const created = yield* store
+          .append([{ data: botCreated(ulid() as BotId, "Fresh"), orgId }], {
+            aggregate: org,
+            expectedVersion: after.version,
+          })
+          .pipe(Effect.result)
+        return { before: before.version, after: after.version, created }
+      }),
+    )
+
+    expect(result.after).toBe(result.before)
+    expect(result.created._tag).toBe("Success")
+  })
+
+  /*
+   * A stored event outlives the code that wrote it. When a required field was
+   * added to `CheckpointWritten`, every older row stopped decoding -- and
+   * because the decode threw, every command that folded an aggregate holding
+   * one died. The organization could not create a bot and the affected threads
+   * could not be sent to, with nothing in the UI to say why.
+   */
+  it("skips a row it cannot decode instead of failing the whole read", async () => {
+    const botId = ulid() as BotId
+    const aggregate = { kind: "bot" as const, id: botId }
+
+    const result = await run(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        const db = yield* Db
+        yield* store.append([{ data: botCreated(botId, "Survivor"), orgId }], { aggregate })
+        // A row written by some future build: right tag, unreadable body.
+        yield* db.sql`
+          insert into event (id, session_id, seq, org_id, thread_id, bot_id, actor_user_id,
+                             stream_index, type, data, at)
+          values (${ulid()}, '', 99999, ${orgId}, null, ${botId}, null, null, 'BotRenamed',
+                  '{"_tag":"BotRenamed","botId":"nope"}', 0)`
+        return yield* store.readAggregate(aggregate)
+      }),
+    )
+
+    // The readable event survives...
+    expect(result.events.map((event) => event.data._tag)).toEqual(["BotCreated"])
+    // ...and the unreadable one still holds its place, so a stale decision
+    // cannot append over a fresh one it never saw.
+    expect(result.version).toBe(2)
+  })
+
   it("reads strictly forward and tolerates gaps in seq", async () => {
     const botId = ulid() as BotId
     const aggregate = { kind: "bot" as const, id: botId }

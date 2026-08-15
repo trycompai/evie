@@ -178,6 +178,36 @@ const makeTurnDispatch = Effect.gen(function* () {
         adapter.clear({ botId: input.botId, sessionId: input.sessionId, actor }),
       )
     }),
+    resumeThread: Effect.fn("bridges.resumeThread")(function* (threadId) {
+      /*
+       * Every participant of this thread that holds a session handle and has a
+       * turn nobody has settled. `TurnSettled` is matched on the turn id rather
+       * than on recency because a settled turn is settled whenever it happened,
+       * and an unsettled one is the whole reason to be here.
+       */
+      const rows = yield* sql<{ bot_id: string; eve_session_id: string }>`
+        select tp.bot_id, tp.eve_session_id from thread_participant tp
+        where tp.thread_id = ${threadId} and tp.eve_session_id is not null
+          and exists (
+            select 1 from event d
+            where d.session_id = '' and d.type = 'TurnDispatched'
+              and d.thread_id = ${threadId} and d.bot_id = tp.bot_id
+              and json_extract(d.data, '$.turnId') not in (
+                select json_extract(s.data, '$.turnId') from event s
+                where s.session_id = '' and s.type = 'TurnSettled' and s.bot_id = tp.bot_id))`
+      for (const row of rows) {
+        // "Ensuring", not "resuming": `ensureAttached` is a no-op when this
+        // (thread, bot) is already being ingested, which is the common case.
+        yield* Effect.logInfo("bridges: ensuring ingestion for an unsettled turn", {
+          threadId,
+          botId: row.bot_id,
+        })
+        yield* ensureAttached(threadId, row.bot_id as BotId, row.eve_session_id as SessionId)
+      }
+    }, Effect.catchCause((cause) =>
+      // Best-effort: a thread that cannot be resumed still has to open.
+      Effect.logWarning("bridges: resume failed", cause),
+    )),
   } satisfies TurnDispatchShape
 })
 

@@ -74,6 +74,19 @@ export interface HubShape {
   readonly subscribeFleet: (orgId: string) => Stream.Stream<FleetFrame>
   /** Last published status. In-memory only; `ready` for a thread nobody touched. */
   readonly statusOf: (threadId: string) => ThreadStatus
+  /**
+   * Threads with at least one live subscriber right now. This is what
+   * `ClientPresence` reads to keep a watched bot's runtime warm.
+   *
+   * Subscription is the honest presence signal precisely because nobody has to
+   * remember to end it: the set is maintained by `subscribeThread`'s own scope
+   * finalizer, so a closed tab, a dropped socket and a killed client all
+   * withdraw presence by the same path the stream already unwinds. A registry
+   * fed by an explicit "I am leaving" call would leak a warm runtime every
+   * time a client died without sending one -- which is every time a client
+   * dies.
+   */
+  readonly watchedThreads: () => ReadonlySet<string>
 }
 
 /* --- pending state, one per subscriber ------------------------------------ */
@@ -432,12 +445,17 @@ const make = Effect.gen(function* () {
   const statusOf: HubShape["statusOf"] = (threadId) =>
     statuses.get(threadId) ?? { kind: "ready" }
 
+  // `threadSubscribers` deletes a thread's entry when its last subscriber
+  // unwinds, so the key set is already exactly "watched right now".
+  const watchedThreads: HubShape["watchedThreads"] = () => new Set(threadSubscribers.keys())
+
   return {
     publishThread,
     publishFleet,
     subscribeThread,
     subscribeFleet,
     statusOf,
+    watchedThreads,
   } satisfies HubShape
 })
 

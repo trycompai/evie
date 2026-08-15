@@ -26,12 +26,26 @@ export interface DialogSurfaceProps extends DialogPrimitive.Popup.Props {
 export function DialogSurface({ className, width = 1040, children, ...props }: DialogSurfaceProps) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-[#0000009e]" />
+      <DialogPrimitive.Backdrop
+        className={cn(
+          "fixed inset-0 z-50 bg-[#0000009e]",
+          // Fades with the popup so scrim and surface read as one thing.
+          "transition-opacity duration-200 ease-out",
+          "data-[starting-style]:opacity-0",
+          "data-[ending-style]:opacity-0 data-[ending-style]:duration-150",
+        )}
+      />
       <DialogPrimitive.Popup
         className={cn(
           "fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[calc(100vw-64px)] -translate-x-1/2 -translate-y-1/2",
           "flex-col overflow-hidden rounded-2xl border border-line-subtle bg-raised",
           "focus-visible:outline-none",
+          // Enter 200ms / exit 150ms on scale + opacity only; the centering
+          // translate never animates. A modal is the exemption to
+          // origin-at-the-trigger: it stays centered.
+          "transition-[opacity,scale] duration-200 ease-out",
+          "data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0",
+          "data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[ending-style]:duration-150",
           className,
         )}
         style={{ maxWidth: width }}

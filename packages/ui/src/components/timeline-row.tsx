@@ -128,6 +128,7 @@ export const TimelineRow = memo(function TimelineRow({
     case "input":
       return (
         <ApprovalCard
+          requestId={item.requestId}
           prompt={item.prompt}
           options={item.options ?? []}
           state={item.state}

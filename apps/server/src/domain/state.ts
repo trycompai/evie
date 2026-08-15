@@ -258,6 +258,72 @@ export const emptyOrgState = (): OrgState => ({
 })
 
 /**
+ * The events each aggregate folds -- which is to say, the events that ARE that
+ * aggregate. `EventStore` reads exactly these.
+ *
+ * The store used to infer an aggregate from the denormalized columns instead:
+ * a thread was every row with that `thread_id`, and the org was every row with
+ * that `org_id` -- which is *every product event in the organization*. Two
+ * things followed, and both were bad:
+ *
+ *   - the org's version counted turns, checkpoints and runtime receipts, so a
+ *     bot answering a message in one thread invalidated a `CreateBot` being
+ *     decided in another. One retry, then the command failed. Creating a bot
+ *     while anything else was happening simply did not work;
+ *   - and the fold had to read all of it, so a single row this build could not
+ *     decode took down every command in the organization rather than the one
+ *     conversation it belonged to.
+ *
+ * Keep each list beside its fold. A tag the fold handles but this omits is a
+ * decision made against a state that is missing it -- the reason `default:` in
+ * these folds returns the state unchanged rather than throwing.
+ */
+export const AGGREGATE_EVENTS: {
+  readonly [K in AggregateState["kind"]]: ReadonlyArray<EvieEvent["_tag"]>
+} = {
+  bot: [
+    "BotCreated",
+    "BotRenamed",
+    "BotMovedToTeam",
+    "BotArchived",
+    "BotUnarchived",
+    "ModelChanged",
+    "SandboxBackendChanged",
+    "RoutineCreated",
+    "RoutineEnabled",
+    "RoutineRunAsChanged",
+    "RoutineDeleted",
+    "ServiceConnected",
+    "ServiceDisconnected",
+    "GrantLinked",
+    "GrantRevoked",
+  ],
+  thread: [
+    "ThreadOpened",
+    "ParticipantAdded",
+    "ParticipantRemoved",
+    "MessageSent",
+    "InputAnswered",
+    "ThreadSnoozed",
+    "ThreadUnsnoozed",
+    "ThreadArchived",
+    "ThreadUnarchived",
+    "ThreadRenamed",
+    "TurnDispatched",
+    "TurnSettled",
+  ],
+  org: [
+    "BotCreated",
+    "BotArchived",
+    "BotUnarchived",
+    "TeamCreated",
+    "TeamDeleted",
+    "SecretSet",
+    "SecretRemoved",
+  ],
+}
+
+/**
  * Folds one aggregate's product events, exactly as `EventStore.readAggregate`
  * returned them. `version` is the event count -- the number `append` checks
  * `expectedVersion` against.

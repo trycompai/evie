@@ -545,7 +545,33 @@ const make = Effect.gen(function* () {
   })
 
   const shape: SupervisorShape = {
-    acquire: (botId) => RcMap.get(runtimes, botId),
+    /**
+     * A failed start is not a durable answer.
+     *
+     * The `RcMap` caches a lookup's outcome, failures included, which is right
+     * for a runtime and wrong for the reason one could not be started. Those
+     * reasons expire: the commonest is a bot whose `npm install` has not
+     * finished, and "eve is not installed in the bot directory" stops being
+     * true a few seconds later. Cached, it never stopped being true -- the
+     * entry answered instantly and identically for the rest of the process, so
+     * a bot that lost one race at creation was mute until the server
+     * restarted, and every message to it was dropped with a log line.
+     *
+     * Dropping the entry on failure costs a fresh spawn attempt the next time
+     * someone asks. Someone asking is exactly when it should be tried again:
+     * `supervise` already refuses to spin on its own (three strikes, then
+     * unhealthy), and this does not touch that -- it only stops a stale "no"
+     * from outliving the thing that caused it.
+     */
+    acquire: (botId) =>
+      RcMap.get(runtimes, botId).pipe(
+        Effect.tapError(() =>
+          RcMap.invalidate(runtimes, botId).pipe(
+            Effect.andThen(FiberMap.remove(fibers, botId)),
+            Effect.andThen(Effect.logDebug("Supervisor: dropped a failed start so the next try is fresh", { botId })),
+          ),
+        ),
+      ),
     health: (botId) => Effect.sync(() => healthMap.get(botId) ?? { kind: "idle" }),
     invalidate: (botId) =>
       Effect.gen(function* () {

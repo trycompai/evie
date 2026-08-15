@@ -111,7 +111,18 @@ export function NewBotScreen({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-10">
-        <BotMark size={96} shape={shape} tone={tone} />
+        {/*
+          Keyed by shape so picking one remounts the preview and it pops in
+          (`starting:` is @starting-style). Tone is deliberately not in the key:
+          a colour change is legible on its own, and re-animating on every
+          swatch would make the picker feel busy.
+        */}
+        <span
+          key={shape}
+          className="inline-flex transition-[opacity,scale] duration-[180ms] ease-out starting:scale-[0.92] starting:opacity-60"
+        >
+          <BotMark size={96} shape={shape} tone={tone} />
+        </span>
 
         <div role="radiogroup" aria-label="Tone" className="flex items-center gap-2.5">
           {BOT_TONES.map((t) => (

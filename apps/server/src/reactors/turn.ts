@@ -61,6 +61,22 @@ export interface TurnDispatchShape {
     readonly botId: BotId
     readonly sessionId: SessionId
   }) => Effect.Effect<void, RuntimeUnavailable>
+  /**
+   * Re-attach ingestion for a thread whose turn is still running.
+   *
+   * Attaching to an eve session had exactly one trigger -- dispatching a turn
+   * -- and eve sessions outlive Evie. Restart the server while a bot is
+   * working and the turn keeps running inside eve with nobody reading it: the
+   * thread freezes at whatever it had rendered, with a spinner that is telling
+   * the truth about eve and a lie about Evie, and it stays that way until
+   * somebody sends another message. `specs/01` promises the opposite -- that
+   * any client attaches and takes over. The resume cursor was already durable;
+   * only this trigger was missing.
+   *
+   * Idempotent, and cheap when there is nothing to do: an already-attached
+   * (thread, bot) keeps its existing fiber and its cursor.
+   */
+  readonly resumeThread: (threadId: ThreadId) => Effect.Effect<void>
 }
 
 export class TurnDispatch extends Context.Service<TurnDispatch, TurnDispatchShape>()(
@@ -136,6 +152,15 @@ export const dispatchCommit = (
  */
 const TERMINAL_SESSION = new Set(["session.failed", "session.ended", "session.aborted"])
 
+/**
+ * Evie's turn id for one message to one bot.
+ *
+ * Derived rather than minted, so a replay dispatches the same turn and
+ * "was this already dispatched?" is a lookup instead of a heuristic.
+ */
+const turnIdFor = (triggerEventId: string, botId: BotId): TurnId =>
+  deriveUlid(triggerEventId, botId, "turn") as TurnId
+
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const store = yield* EventStore
@@ -176,57 +201,144 @@ const make = Effect.gen(function* () {
       }
       const commits: Array<Commit> = []
       for (const botId of recipients) {
-        // Deterministic per (trigger, recipient): a replay dispatches the same turn.
-        const turnId = deriveUlid(event.id, botId, "turn") as TurnId
         const known = (rows.find((row) => row.bot_id === botId)?.eve_session_id ??
           null) as SessionId | null
-        const send = (sessionId: SessionId | null) =>
-          dispatch.dispatchTurn({
-            botId,
-            threadId: data.threadId,
-            sessionId,
-            turnId,
-            actingAs,
-            message: data.text,
-            // A new message replaces the in-flight turn, which is what a chat UI implies.
-            turnPolicy: "steer",
-          })
+        commits.push(yield* dispatchMessage(event, data, botId, actingAs, known))
+      }
+      const commit: Commit = Effect.all(commits)
+      return commit
+    })
 
-        /*
-         * A session eve will not accept is retried once as a fresh one.
-         *
-         * `handleSessionEnded` drops the handle when eve tells us a session
-         * ended, but that only covers sessions we watched die: a runtime that
-         * was restarted, or a row written before that rule existed, leaves a
-         * handle eve has never heard of. Without this the thread is mute
-         * forever and silently -- the refusal is a reactor-channel error the
-         * user never sees. Retrying with a new session is what their message
-         * plainly meant, and a fresh session is exactly what they would get by
-         * starting a new thread.
-         */
-        const { sessionId } = yield* (known === null
-          ? send(null)
-          : send(known).pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("TurnReactor: session refused; opening a fresh one", {
-                  threadId: data.threadId,
-                  botId,
-                  reason: error.reason,
-                }).pipe(Effect.andThen(send(null))),
-              ),
-            ))
+  /** One message to one bot. Shared by the live path and the provisioning catch-up. */
+  const dispatchMessage = Effect.fn("TurnReactor.dispatchMessage")(function* (
+    event: StoredEvent,
+    data: Extract<StoredEvent["data"], { _tag: "MessageSent" }>,
+    botId: BotId,
+    actingAs: UserId,
+    known: SessionId | null,
+  ) {
+    // Deterministic per (trigger, recipient): a replay dispatches the same turn.
+    const turnId = turnIdFor(event.id, botId)
+    const send = (sessionId: SessionId | null) =>
+      dispatch.dispatchTurn({
+        botId,
+        threadId: data.threadId,
+        sessionId,
+        turnId,
+        actingAs,
+        message: data.text,
+        // A new message replaces the in-flight turn, which is what a chat UI implies.
+        turnPolicy: "steer",
+      })
+
+    /*
+     * A session eve will not accept is retried once as a fresh one.
+     *
+     * `handleSessionEnded` drops the handle when eve tells us a session
+     * ended, but that only covers sessions we watched die: a runtime that
+     * was restarted, or a row written before that rule existed, leaves a
+     * handle eve has never heard of. Without this the thread is mute
+     * forever and silently -- the refusal is a reactor-channel error the
+     * user never sees. Retrying with a new session is what their message
+     * plainly meant, and a fresh session is exactly what they would get by
+     * starting a new thread.
+     */
+    const { sessionId } = yield* (known === null
+      ? send(null)
+      : send(known).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("TurnReactor: session refused; opening a fresh one", {
+              threadId: data.threadId,
+              botId,
+              reason: error.reason,
+            }).pipe(Effect.andThen(send(null))),
+          ),
+        ))
+    return dispatchCommit(sql, store, {
+      triggerEventId: event.id,
+      orgId: event.orgId,
+      threadId: data.threadId,
+      botId,
+      turnId,
+      sessionId,
+      actingAs,
+    })
+  })
+
+  /**
+   * Sends what arrived while the bot was still being installed.
+   *
+   * Creating a bot and immediately saying hello is the first thing anyone
+   * does, and for the ~15 seconds `npm install` takes there is no runtime to
+   * dispatch into. The reactor gives that message five quick retries and then
+   * skips it -- correctly, because wedging every thread behind one unstartable
+   * bot is worse -- so the greeting was simply gone. No error, no retry, no
+   * trace of it outside a server log, on a bot that was working perfectly by
+   * the time the user looked at it.
+   *
+   * `BotProvisioned` is the moment the reason for the failure stops being
+   * true, so it is the moment to try again. Turn ids derive from the
+   * triggering event, which is what makes "already dispatched" a set
+   * membership test rather than a guess -- and what makes running this twice
+   * harmless.
+   */
+  const handleProvisioned = (
+    event: StoredEvent,
+    data: Extract<StoredEvent["data"], { _tag: "BotProvisioned" }>,
+  ) =>
+    Effect.gen(function* () {
+      const botId = data.botId
+      const pending = yield* sql<{
+        id: string
+        thread_id: string
+        actor_user_id: string | null
+        org_id: string
+        data: string
+      }>`
+        select e.id, e.thread_id, e.actor_user_id, e.org_id, e.data from event e
+        where e.session_id = '' and e.type = 'MessageSent'
+          and e.thread_id in (select thread_id from thread_participant where bot_id = ${botId})
+        order by e.seq asc`
+      if (pending.length === 0) return
+      const dispatched = yield* sql<{ turn_id: string }>`
+        select json_extract(data, '$.turnId') as turn_id from event
+        where session_id = '' and type = 'TurnDispatched' and bot_id = ${botId}`
+      const already = new Set(dispatched.map((row) => row.turn_id))
+
+      const commits: Array<Commit> = []
+      for (const row of pending) {
+        if (already.has(turnIdFor(row.id, botId))) continue
+        const actingAs = row.actor_user_id
+        if (actingAs === null) continue
+        let message: Extract<StoredEvent["data"], { _tag: "MessageSent" }>
+        try {
+          message = JSON.parse(row.data) as typeof message
+        } catch {
+          continue
+        }
+        // Only what this bot was actually addressed by, same rule as the live path.
+        const addressed =
+          message.mentions.length > 0
+            ? message.mentions.includes(botId)
+            : ((yield* participants(row.thread_id as ThreadId))[0]?.bot_id ?? null) === botId
+        if (!addressed) continue
+        yield* Effect.logInfo("TurnReactor: dispatching a message that arrived before the bot was installed", {
+          botId,
+          threadId: row.thread_id,
+          eventId: row.id,
+        })
         commits.push(
-          dispatchCommit(sql, store, {
-            triggerEventId: event.id,
-            orgId: event.orgId,
-            threadId: data.threadId,
+          yield* dispatchMessage(
+            { ...event, id: row.id, orgId: row.org_id } as StoredEvent,
+            message,
             botId,
-            turnId,
-            sessionId,
-            actingAs,
-          }),
+            actingAs as UserId,
+            // Provisioning has just finished, so there is no session yet.
+            null,
+          ),
         )
       }
+      if (commits.length === 0) return
       const commit: Commit = Effect.all(commits)
       return commit
     })
@@ -477,6 +589,8 @@ const make = Effect.gen(function* () {
       switch (data._tag) {
         case "MessageSent":
           return handleMessage(event, data)
+        case "BotProvisioned":
+          return handleProvisioned(event, data)
         case "InputAnswered":
           return handleAnswer(event, data)
         case "TurnCancelRequested":

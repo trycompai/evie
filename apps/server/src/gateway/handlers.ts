@@ -24,6 +24,7 @@ import { Db } from "../db/Db.ts"
 import { decide } from "../domain/decide.ts"
 import { foldAggregate, type Actor } from "../domain/state.ts"
 import { ReactorWake } from "../reactors/runtime.ts"
+import { TurnDispatch } from "../reactors/turn.ts"
 import { Secrets, type SecretScope } from "../secrets/Secrets.ts"
 import { EventStore, type AggregateKey } from "../store/EventStore.ts"
 import { Hub } from "./hub.ts"
@@ -122,6 +123,7 @@ export const HandlersLive = EvieRpcAuthed.toLayer(
     const auth = yield* Auth
     const wake = yield* ReactorWake
     const secrets = yield* Secrets
+    const turns = yield* TurnDispatch
     const sql = db.sql
 
     /**
@@ -624,6 +626,18 @@ export const HandlersLive = EvieRpcAuthed.toLayer(
           Effect.gen(function* () {
             const conn = yield* ConnectionState
             yield* threadInOrg(payload.threadId, conn.actor.orgId)
+            /*
+             * Opening a thread is also what takes over a turn that outlived a
+             * restart. eve sessions are durable and ingestion was only ever
+             * started by a dispatch, so a server restarted mid-turn left the
+             * thread frozen until someone sent another message.
+             *
+             * Forked, because it must not delay the first frame, and because
+             * resuming may have to start a runtime. It is idempotent and a
+             * no-op for the overwhelming majority of subscriptions, where
+             * nothing is running.
+             */
+            yield* Effect.forkDetach(turns.resumeThread(payload.threadId))
             return hub.subscribeThread(payload.threadId, {
               ...(payload.since === undefined ? {} : { since: payload.since }),
               // Read live so a `reasoning.watch` mid-turn takes effect on the
