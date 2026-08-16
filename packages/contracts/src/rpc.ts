@@ -5,6 +5,7 @@ import { Command } from "./commands.ts"
 import { EvieError } from "./errors.ts"
 import { BlobId, BotId, EventId, Millis, ThreadId, UserId } from "./ids.ts"
 import { Invitation, Member, SessionInfo, Team } from "./org.ts"
+import { Routine } from "./routine.ts"
 import { Thread } from "./thread.ts"
 import { TimelineFrame, TimelineItem } from "./timeline.ts"
 
@@ -154,6 +155,21 @@ export class EvieRpc extends RpcGroup.make(
         configured: Schema.Boolean,
       }),
     ),
+    error: EvieError,
+  }),
+
+  /**
+   * Every routine the caller's organization owns, newest first, optionally
+   * narrowed to one bot.
+   *
+   * A read rather than a slice of `FleetFrame`: routines change when someone
+   * edits one, which is rare, and putting them on the fleet subscription would
+   * spend the frame budget on a table almost nobody has open. The dialog
+   * refetches when it opens and after each command's receipt.
+   */
+  Rpc.make("routines.list", {
+    payload: { botId: Schema.optional(BotId) },
+    success: Schema.Array(Routine),
     error: EvieError,
   }),
 

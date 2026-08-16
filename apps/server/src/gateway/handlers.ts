@@ -28,6 +28,7 @@ import { TurnDispatch } from "../reactors/turn.ts"
 import { Secrets, type SecretScope } from "../secrets/Secrets.ts"
 import { EventStore, type AggregateKey } from "../store/EventStore.ts"
 import { Hub } from "./hub.ts"
+import { routineOf, type RoutineTableRow } from "./routine-row.ts"
 import { grantBlobUrl } from "./http.ts"
 import { Auth, ConnectionState, EvieRpcAuthed, type OrgCommand } from "./middleware.ts"
 
@@ -553,6 +554,22 @@ export const HandlersLive = EvieRpcAuthed.toLayer(
             hint: row.hint,
             configured: true,
           }))
+        }),
+
+      "routines.list": (payload) =>
+        Effect.gen(function* () {
+          const conn = yield* ConnectionState
+          if (payload.botId !== undefined) {
+            yield* ownedBy({ kind: "bot", id: payload.botId }, conn.actor.orgId)
+          }
+          const rows = yield* orStorage(sql<RoutineTableRow>`
+            select id, bot_id, thread_id, name, cron, tz, prompt, run_as,
+                   enabled, blocked_reason, last_run_at, next_run_at
+            from routine
+            where org_id = ${conn.actor.orgId}
+              and (${payload.botId === undefined ? sql`1 = 1` : sql`bot_id = ${payload.botId}`})
+            order by name asc`)
+          return rows.map(routineOf)
         }),
 
       "plugins.catalog": (payload) =>

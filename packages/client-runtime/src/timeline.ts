@@ -42,6 +42,14 @@ export interface ApplyResult {
 	readonly changed: readonly string[];
 	/** True when the set of ids or the thread-level state changed. */
 	readonly threadChanged: boolean;
+	/**
+	 * True when a bash run appeared or changed, so the Terminal tab re-reads.
+	 * Its own flag rather than riding on `threadChanged`: a run's output lands
+	 * as a `replace` of a known row, a frame that changes no ids, and widening
+	 * `threadChanged` to cover it would re-render the whole timeline container
+	 * for every tool that finishes.
+	 */
+	readonly terminalChanged: boolean;
 }
 
 const READY: ThreadStatus = { kind: "ready" };
@@ -61,9 +69,22 @@ export class Timeline {
 	 * get this wrong, so the cache is invalidated in exactly one place.
 	 */
 	#snapshot: TimelineSnapshot | null = null;
+	/** The Terminal tab's lines. Same caching contract as `#snapshot`. */
+	#terminal: readonly string[] | null = null;
 
 	get(id: string): TimelineItem | undefined {
 		return this.#items.get(id);
+	}
+
+	/**
+	 * The Terminal tab's transcript: every `bash` run this client holds, in
+	 * thread order. Derived from tool rows already in the timeline, so the tab
+	 * costs nothing on the wire -- and it can only show runs from the pages that
+	 * have been hydrated, the same window the timeline itself draws from.
+	 */
+	terminal(): readonly string[] {
+		this.#terminal ??= transcript(this.#items, this.#order);
+		return this.#terminal;
 	}
 
 	snapshot(): TimelineSnapshot {
@@ -126,12 +147,14 @@ export class Timeline {
 			if (item.seq > this.#lastSeq) this.#lastSeq = item.seq;
 		}
 		this.#order = [...this.#items.values()].sort(bySeq).map((item) => item.id);
+		if (items.some(isBashRun)) this.#terminal = null;
 		this.#invalidate();
 	}
 
 	apply(frame: TimelineFrame): ApplyResult {
 		const changed: string[] = [];
 		let inserted = false;
+		let terminalChanged = false;
 		// Deltas name the row they extend, so the streaming row is read rather
 		// than inferred. Reset per frame only where the ops say so.
 		let streaming = this.#streamingId;
@@ -144,12 +167,14 @@ export class Timeline {
 					if (!this.#items.has(op.item.id)) inserted = true;
 					this.#items.set(op.item.id, op.item);
 					changed.push(op.item.id);
+					if (isBashRun(op.item)) terminalChanged = true;
 					break;
 				}
 				case "replace": {
 					if (!this.#items.has(op.item.id)) inserted = true;
 					this.#items.set(op.item.id, op.item);
 					changed.push(op.item.id);
+					if (isBashRun(op.item)) terminalChanged = true;
 					break;
 				}
 				case "appendText": {
@@ -223,14 +248,83 @@ export class Timeline {
 		const threadChanged =
 			inserted || statusChanged || modeChanged || streamingChanged;
 		if (threadChanged) this.#invalidate();
+		if (terminalChanged) this.#terminal = null;
 
-		return { changed, threadChanged };
+		return { changed, threadChanged, terminalChanged };
 	}
 }
 
 /** A turn is in flight. The two states that can be producing a reply. */
 const live = (status: ThreadStatus) =>
 	status.kind === "thinking" || status.kind === "running";
+
+/* ---------------------------------------------------------------------------
+ * The Terminal tab.
+ *
+ * Not an emulator: a transcript of the thread's `bash` tool rows, which the
+ * client already holds for the timeline. eve's bash tool takes `{ command }`
+ * and returns `{ exitCode, stdout, stderr, truncated }`; both readers below
+ * are tolerant because a row over 8 KiB arrives with its payload clipped.
+ * ------------------------------------------------------------------------- */
+
+/** eve's shell tool, the only one whose runs belong in a terminal. */
+const BASH_TOOL = "bash";
+
+const isBashRun = (
+	item: TimelineItem,
+): item is Extract<TimelineItem, { kind: "tool" }> =>
+	item.kind === "tool" && item.name === BASH_TOOL;
+
+const commandOf = (input: unknown): string | undefined => {
+	if (typeof input === "string") return input;
+	const command =
+		typeof input === "object" && input !== null
+			? (input as Record<string, unknown>)["command"]
+			: undefined;
+	return typeof command === "string" ? command : undefined;
+};
+
+/** What one run printed: stdout, then stderr, then a nonzero exit code. */
+const printedOf = (output: unknown): string[] => {
+	if (typeof output === "string") {
+		return output.trimEnd() === "" ? [] : [output.trimEnd()];
+	}
+	if (typeof output !== "object" || output === null) return [];
+	const o = output as Record<string, unknown>;
+	const lines: string[] = [];
+	for (const stream of ["stdout", "stderr"] as const) {
+		const text = o[stream];
+		if (typeof text === "string" && text.trimEnd() !== "")
+			lines.push(text.trimEnd());
+	}
+	const exitCode = o["exitCode"];
+	if (typeof exitCode === "number" && exitCode !== 0)
+		lines.push(`exit ${exitCode}`);
+	return lines;
+};
+
+const transcript = (
+	items: ReadonlyMap<string, TimelineItem>,
+	order: readonly string[],
+): readonly string[] => {
+	const lines: string[] = [];
+	for (const id of order) {
+		const item = items.get(id);
+		if (item === undefined || !isBashRun(item)) continue;
+		if (lines.length > 0) lines.push("");
+		// A run whose input was clipped past recognition still ran; say so
+		// rather than dropping it and making the transcript shorter than the truth.
+		lines.push(`$ ${commandOf(item.input) ?? "…"}`);
+		const printed = printedOf(item.output);
+		lines.push(...printed);
+		// A run can fail before it prints anything -- the machinery erred, not
+		// the command -- and a bare prompt line would read as "ran clean".
+		if (item.state === "cancelled") lines.push("(cancelled)");
+		else if (item.state === "error" && printed.length === 0)
+			lines.push("(failed)");
+	}
+	return lines;
+};
 
 const bySeq = (a: TimelineItem, b: TimelineItem) => a.seq - b.seq;
 

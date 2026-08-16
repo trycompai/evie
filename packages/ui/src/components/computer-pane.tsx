@@ -154,13 +154,14 @@ export function FileRow({ name, kind, depth, expanded, onSelect }: FileRowProps)
 }
 
 /**
- * Terminal output. Not an emulator -- a transcript of what the sandbox printed.
- * A real PTY is Phase 3, alongside the CDP screencast.
+ * Terminal output. Not an emulator -- a transcript of what the sandbox printed,
+ * scoped to the open conversation. A real PTY is Phase 3, alongside the CDP
+ * screencast.
  */
 export function TerminalView({ lines }: { readonly lines: readonly string[] }) {
   return (
     <pre className="overflow-x-auto px-2 py-2 font-mono text-metadata whitespace-pre-wrap text-fg-muted">
-      {lines.length > 0 ? lines.join("\n") : "Nothing has run in this sandbox yet."}
+      {lines.length > 0 ? lines.join("\n") : "Nothing has run in this conversation yet."}
     </pre>
   )
 }

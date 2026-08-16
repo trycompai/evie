@@ -14,6 +14,7 @@ import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppNewRouteImport } from './routes/_app.new'
 import { Route as AppPluginsRouteImport } from './routes/_app.plugins'
+import { Route as AppRoutinesRouteImport } from './routes/_app.routines'
 import { Route as WelcomeConnectRouteImport } from './routes/welcome_.connect'
 import { Route as AppChatThreadIdRouteImport } from './routes/_app.chat.$threadId'
 
@@ -41,6 +42,11 @@ const AppPluginsRoute = AppPluginsRouteImport.update({
   path: '/plugins',
   getParentRoute: () => AppRoute,
 } as any)
+const AppRoutinesRoute = AppRoutinesRouteImport.update({
+  id: '/routines',
+  path: '/routines',
+  getParentRoute: () => AppRoute,
+} as any)
 const WelcomeConnectRoute = WelcomeConnectRouteImport.update({
   id: '/welcome_/connect',
   path: '/welcome/connect',
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/welcome': typeof WelcomeRoute
   '/new': typeof AppNewRoute
   '/plugins': typeof AppPluginsRoute
+  '/routines': typeof AppRoutinesRoute
   '/welcome/connect': typeof WelcomeConnectRoute
   '/chat/$threadId': typeof AppChatThreadIdRoute
 }
@@ -64,6 +71,7 @@ export interface FileRoutesByTo {
   '/welcome': typeof WelcomeRoute
   '/new': typeof AppNewRoute
   '/plugins': typeof AppPluginsRoute
+  '/routines': typeof AppRoutinesRoute
   '/welcome/connect': typeof WelcomeConnectRoute
   '/': typeof AppIndexRoute
   '/chat/$threadId': typeof AppChatThreadIdRoute
@@ -74,6 +82,7 @@ export interface FileRoutesById {
   '/welcome': typeof WelcomeRoute
   '/_app/new': typeof AppNewRoute
   '/_app/plugins': typeof AppPluginsRoute
+  '/_app/routines': typeof AppRoutinesRoute
   '/welcome_/connect': typeof WelcomeConnectRoute
   '/_app/': typeof AppIndexRoute
   '/_app/chat/$threadId': typeof AppChatThreadIdRoute
@@ -85,6 +94,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/new'
     | '/plugins'
+    | '/routines'
     | '/welcome/connect'
     | '/chat/$threadId'
   fileRoutesByTo: FileRoutesByTo
@@ -92,6 +102,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/new'
     | '/plugins'
+    | '/routines'
     | '/welcome/connect'
     | '/'
     | '/chat/$threadId'
@@ -101,6 +112,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/_app/new'
     | '/_app/plugins'
+    | '/_app/routines'
     | '/welcome_/connect'
     | '/_app/'
     | '/_app/chat/$threadId'
@@ -149,6 +161,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPluginsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/routines': {
+      id: '/_app/routines'
+      path: '/routines'
+      fullPath: '/routines'
+      preLoaderRoute: typeof AppRoutinesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/welcome_/connect': {
       id: '/welcome_/connect'
       path: '/welcome/connect'
@@ -169,6 +188,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppNewRoute: typeof AppNewRoute
   AppPluginsRoute: typeof AppPluginsRoute
+  AppRoutinesRoute: typeof AppRoutinesRoute
   AppIndexRoute: typeof AppIndexRoute
   AppChatThreadIdRoute: typeof AppChatThreadIdRoute
 }
@@ -176,6 +196,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppNewRoute: AppNewRoute,
   AppPluginsRoute: AppPluginsRoute,
+  AppRoutinesRoute: AppRoutinesRoute,
   AppIndexRoute: AppIndexRoute,
   AppChatThreadIdRoute: AppChatThreadIdRoute,
 }

@@ -103,6 +103,7 @@ function Rail() {
         onSelectThread={noop}
         onNewBot={noop}
         onOpenPlugins={noop}
+        onOpenRoutines={noop}
         onOpenAccount={noop}
       />
       <main className="flex-1" />
@@ -124,6 +125,7 @@ function NewBot() {
         onSelectThread={noop}
         onNewBot={noop}
         onOpenPlugins={noop}
+        onOpenRoutines={noop}
         onOpenAccount={noop}
       />
       <NewBotScreen
@@ -170,6 +172,7 @@ function Chat() {
         onSelectThread={noop}
         onNewBot={noop}
         onOpenPlugins={noop}
+        onOpenRoutines={noop}
         onOpenAccount={noop}
       />
       <main className="flex min-w-0 flex-1 flex-col">
@@ -241,6 +244,7 @@ function ChatCreating() {
         onSelectThread={noop}
         onNewBot={noop}
         onOpenPlugins={noop}
+        onOpenRoutines={noop}
         onOpenAccount={noop}
       />
       <main className="flex min-w-0 flex-1 flex-col">

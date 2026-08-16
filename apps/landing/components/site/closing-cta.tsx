@@ -11,7 +11,13 @@ import { CLOSING } from "~/content/site"
 
 export function ClosingCta() {
   return (
-    <Section id="download" ground="muted" topLine className="pt-24 pb-24 tablet:pt-30 tablet:pb-32">
+    <Section
+      alive
+      id="download"
+      ground="muted"
+      topLine
+      className="pt-24 pb-24 tablet:pt-30 tablet:pb-32"
+    >
       <EvieMark size={44} className="size-9 tablet:size-11" />
       <h2 className="pt-6 text-center text-[38px] leading-[44px] font-heading tracking-[-0.05em] text-balance text-fg tablet:pt-[26px] tablet:text-[56px] tablet:leading-[62px]">
         {CLOSING.heading}

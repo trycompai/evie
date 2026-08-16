@@ -3,7 +3,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import type { BotHealth } from "@evie/contracts/bot"
 import { RuntimeUnavailable } from "@evie/contracts/errors"
-import type { BotId } from "@evie/contracts/ids"
+import type { BotId, OrgId } from "@evie/contracts/ids"
 import { msbHome } from "@evie/shared/home"
 import {
   Cause,
@@ -30,7 +30,13 @@ import { EvieConfig } from "../config.ts"
 import type { Actor } from "../domain/state.ts"
 import { Secrets } from "../secrets/Secrets.ts"
 import { mintTurnToken } from "./jwt.ts"
-import { MSB_VERSION } from "./scaffold.ts"
+import {
+  connectionEnvName,
+  isGeneratable,
+  MSB_VERSION,
+  Scaffold,
+  type ConnectionSpec,
+} from "./scaffold.ts"
 
 /**
  * eve runtime lifecycle: one process per ACTIVE bot, lazily started, idle-
@@ -133,10 +139,22 @@ export const spawnEnv = (
   allowedHosts: ReadonlyArray<string>,
   msbHomeDir: string,
   stored: ReadonlyArray<readonly [name: string, value: Redacted.Redacted<string>]>,
+  /**
+   * Connection tokens, already keyed by `connectionEnvName`. Separate from
+   * `stored` because these bypass nothing: they are the one credential shape a
+   * generated `agent/connections/*.ts` actually reads, resolved for exactly
+   * the connections that have a file. Written after `stored` so a secret that
+   * happens to share the name cannot shadow the token its connection needs,
+   * and before Evie's own vars so neither can re-point those.
+   */
+  connectionTokens: ReadonlyArray<readonly [name: string, value: Redacted.Redacted<string>]> = [],
 ): Record<string, string> => {
   const env: Record<string, string> = {}
   for (const [name, value] of stored) {
     if (!injectable(name)) continue
+    env[name] = Redacted.value(value)
+  }
+  for (const [name, value] of connectionTokens) {
     env[name] = Redacted.value(value)
   }
   env.EVIE_BOT_ID = botId
@@ -263,6 +281,7 @@ const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const httpClient = yield* HttpClient.HttpClient
   const secrets = yield* Secrets
+  const scaffold = yield* Scaffold
   const fibers = yield* FiberMap.make<BotId>()
   const healthMap = new Map<string, BotHealth>()
 
@@ -299,6 +318,62 @@ const make = Effect.gen(function* () {
   })
 
   /**
+   * The bot's connections, plus the token each generated file will read.
+   *
+   * Only `org` scope resolves a credential, and 05 is the reason: an org
+   * connection is one shared credential the whole organization acts through,
+   * so it is safe in a runtime that serves every member's turns. A `member`
+   * connection is one person's account, and putting that in the environment
+   * would hand it to everybody else's turns -- which is exactly what
+   * `storedSecrets` refuses to do for `user:` secrets, for the same reason.
+   *
+   * A connection whose grant was never linked still gets its file. The file
+   * then throws a named error on first use, which is the failure a person can
+   * act on; omitting it would present as the service simply not existing.
+   */
+  const botConnections = Effect.fn("Supervisor.connections")(function* (
+    orgId: string,
+    botId: BotId,
+  ) {
+    const rows = yield* sql<{
+      id: string
+      name: string
+      kind: string
+      scope: string
+      auth_kind: string
+      config: string
+    }>`select id, name, kind, scope, auth_kind, config from connection where bot_id = ${botId}`
+
+    const specs: Array<ConnectionSpec> = []
+    const tokens: Array<readonly [string, Redacted.Redacted<string>]> = []
+    for (const row of rows) {
+      const config = parseConnectionConfig(row.config)
+      if (config === null) {
+        yield* Effect.logWarning("Supervisor: connection has unreadable config; skipping", {
+          botId,
+          name: row.name,
+        })
+        continue
+      }
+      const spec: ConnectionSpec = {
+        name: row.name,
+        kind: row.kind,
+        scope: row.scope,
+        authKind: row.auth_kind as ConnectionSpec["authKind"],
+        url: config.url,
+        baseUrl: config.baseUrl,
+      }
+      specs.push(spec)
+      if (!isGeneratable(spec) || spec.authKind !== "token") continue
+      const value = yield* secrets.valueForSpawn(`org:${orgId}`, `grant:${row.id}`).pipe(
+        Effect.catchTag("NotFound", () => Effect.succeed(undefined)),
+      )
+      if (value !== undefined) tokens.push([connectionEnvName(row.name), value] as const)
+    }
+    return { specs, tokens }
+  })
+
+  /**
    * One spawn attempt inside the caller-provided scope: fresh secret, fresh
    * ephemeral port, ready only after the health route answers. The scope's
    * finalizer kills the process group, so failure cleanup is closing a scope.
@@ -318,6 +393,30 @@ const make = Effect.gen(function* () {
         stderr: [],
       })
     }
+    /*
+     * Evie-owned files are refreshed for the process that is about to read
+     * them, which is what makes them fixable at all: a bot is scaffolded once
+     * and then lives for months, so a correction to the capability briefing
+     * that only ran at `create` would reach new bots and no one else. `eve
+     * dev` compiles at boot, so the current text is live on the next turn.
+     */
+    const connections = yield* botConnections(orgId, botId).pipe(
+      Effect.mapError(
+        (error) =>
+          new StartError({ reason: `the bot's connections could not be read: ${String(error)}`, stderr: [] }),
+      ),
+    )
+
+    yield* scaffold.regenerate({ orgId: orgId as OrgId, botId, connections: connections.specs }).pipe(
+      Effect.mapError(
+        (error) =>
+          new StartError({
+            reason: `the bot's generated files could not be written (${error.step}): ${error.detail}`,
+            stderr: [],
+          }),
+      ),
+    )
+
     // Fresh per spawn: a leaked token dies with the process it was minted for.
     const secret = randomBytes(32).toString("base64url")
     const stderrTail: Array<string> = []
@@ -351,7 +450,14 @@ const make = Effect.gen(function* () {
     const handle = yield* spawner.spawn(
       ChildProcess.make(eveBin, ["dev", "--no-ui", "--host", "127.0.0.1", "--port", "0"], {
         cwd: dir,
-        env: spawnEnv(botId, secret, allowedHosts, msbHome(config.home, installedMsbVersion(dir)), stored),
+        env: spawnEnv(
+          botId,
+          secret,
+          allowedHosts,
+          msbHome(config.home, installedMsbVersion(dir)),
+          stored,
+          connections.tokens,
+        ),
         extendEnv: true,
         killSignal: "SIGTERM",
         forceKillAfter: "5 seconds",
@@ -606,6 +712,27 @@ const make = Effect.gen(function* () {
   return shape
 })
 
+/**
+ * The stored `config` column, if it still holds what the generator needs.
+ *
+ * Returns null rather than throwing: a row written by an older build, or by
+ * hand, must not take the whole runtime down at spawn. The connection is
+ * skipped and logged, and every other connection on the bot still works.
+ */
+const parseConnectionConfig = (
+  json: string,
+): { readonly url: string; readonly baseUrl?: string } | null => {
+  try {
+    const parsed: unknown = JSON.parse(json)
+    if (typeof parsed !== "object" || parsed === null) return null
+    const { url, baseUrl } = parsed as Record<string, unknown>
+    if (typeof url !== "string" || url.length === 0) return null
+    return typeof baseUrl === "string" ? { url, baseUrl } : { url }
+  } catch {
+    return null
+  }
+}
+
 /** The bot row's sandbox config carries the allow-list the spawn env injects. */
 const allowedHostsOf = (sandboxJson: string): ReadonlyArray<string> => {
   try {
@@ -623,7 +750,8 @@ const allowedHostsOf = (sandboxJson: string): ReadonlyArray<string> => {
 export class Supervisor extends Context.Service<Supervisor, SupervisorShape>()("Supervisor") {
   /**
    * Needs `EvieConfig`, `Db` (for `SqlClient`), `Secrets` (the spawn env's
-   * stored half), a `ChildProcessSpawner`, and an `HttpClient`.
+   * stored half), `Scaffold` (the Evie-owned files each spawn refreshes), a
+   * `ChildProcessSpawner`, and an `HttpClient`.
    */
   static readonly layer = Layer.effect(Supervisor, make)
 }

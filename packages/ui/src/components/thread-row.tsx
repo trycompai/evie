@@ -33,6 +33,8 @@ export interface ThreadRowProps {
   readonly active?: boolean
   readonly unread?: boolean
   readonly health?: RowHealth
+  /** Set on the row of a bot that was just created, so its mark wakes up once. */
+  readonly awake?: boolean
   readonly onSelect?: () => void
 }
 
@@ -45,6 +47,7 @@ export function ThreadRow({
   active = false,
   unread = false,
   health = "ok",
+  awake = false,
   onSelect,
 }: ThreadRowProps) {
   return (
@@ -59,7 +62,7 @@ export function ThreadRow({
       )}
     >
       <span className="relative flex size-[34px] shrink-0 items-center justify-center">
-        <BotMark shape={shape} tone={tone} size={34} />
+        <BotMark shape={shape} tone={tone} size={34} mood={awake ? "waking" : "still"} />
         {health !== "ok" && (
           <span
             aria-hidden

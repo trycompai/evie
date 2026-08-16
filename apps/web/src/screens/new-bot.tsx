@@ -1,6 +1,13 @@
 import { ActionButton } from "@evie/ui/components/action-button"
-import { BotMark, BOT_SHAPES, BOT_TONES } from "@evie/ui/components/bot-mark"
+import {
+  BotMark,
+  BOT_SHAPES,
+  BOT_TONE_FILLS,
+  BOT_TONE_NAMES,
+  BOT_TONES,
+} from "@evie/ui/components/bot-mark"
 import type { BotShape, BotTone } from "@evie/ui/components/bot-mark"
+import type { BotId } from "@evie/contracts/ids"
 import { TextField } from "@evie/ui/components/text-field"
 import { cn } from "@evie/ui/lib/utils"
 
@@ -42,20 +49,6 @@ export const BOT_SUGGESTIONS: readonly BotSuggestion[] = [
 ]
 
 /**
- * Mirrors BotMark's tone fills so a swatch is the exact colour the mark will
- * be. BotMark keeps the mapping private; duplicating six vars here beats
- * widening the design system's surface for one picker.
- */
-const TONE_SWATCH: Record<BotTone, string> = {
-  1: "var(--color-text-primary)",
-  2: "var(--color-gray-500)",
-  3: "var(--color-gray-600)",
-  4: "var(--color-gray-700)",
-  5: "var(--color-gray-800)",
-  6: "var(--color-gray-900)",
-}
-
-/**
  * Roving-tabindex arrow navigation for a radio row: Left/Up and Right/Down move
  * focus and selection together, wrapping at the ends. Selection follows focus,
  * the standard radio-group pattern, so `click()` is the whole state change.
@@ -77,6 +70,14 @@ function radioArrowNav(event: React.KeyboardEvent<HTMLButtonElement>) {
   next?.click()
 }
 
+/** An archived bot, reduced to what the restore row draws. */
+export interface ArchivedBot {
+  readonly id: BotId
+  readonly name: string
+  readonly shape: BotShape
+  readonly tone: BotTone
+}
+
 export interface NewBotScreenProps {
   readonly name: string
   readonly onNameChange: (name: string) => void
@@ -88,6 +89,13 @@ export interface NewBotScreenProps {
   readonly onPickSuggestion: (suggestion: BotSuggestion) => void
   /** Disables the form while the create round-trip is in flight. */
   readonly creating?: boolean
+  /**
+   * Deleted bots, restorable here. This screen is where bots come into being,
+   * so it is also where they come back -- the way out of archive lives next to
+   * the way in, not behind a settings pane that does not exist yet.
+   */
+  readonly archived?: readonly ArchivedBot[]
+  readonly onRestore?: (botId: BotId) => void
 }
 
 export function NewBotScreen({
@@ -100,6 +108,8 @@ export function NewBotScreen({
   onCreate,
   onPickSuggestion,
   creating = false,
+  archived = [],
+  onRestore,
 }: NewBotScreenProps) {
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-surface">
@@ -112,26 +122,28 @@ export function NewBotScreen({
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-10">
         {/*
-          Keyed by shape so picking one remounts the preview and it pops in
-          (`starting:` is @starting-style). Tone is deliberately not in the key:
-          a colour change is legible on its own, and re-animating on every
-          swatch would make the picker feel busy.
-        */}
-        <span
-          key={shape}
-          className="inline-flex transition-[opacity,scale] duration-[180ms] ease-out starting:scale-[0.92] starting:opacity-60"
-        >
-          <BotMark size={96} shape={shape} tone={tone} />
-        </span>
+          Keyed by shape so picking one remounts the preview and it wakes: the
+          mark pops and settles and the eyes open and look around. This is the
+          bot you are about to make, so it is the one place in the app where a
+          mark should look like it is coming to life, and it is the same
+          animation its rail row plays the moment it exists.
 
-        <div role="radiogroup" aria-label="Tone" className="flex items-center gap-2.5">
+          Tone is deliberately not in the key: a colour change is legible on its
+          own, and re-waking on every swatch would make the picker feel busy.
+        */}
+        <BotMark key={shape} size={96} shape={shape} tone={tone} mood="waking" />
+
+        {/* Two rows of six: neutrals above, hues below. A single line of twelve
+            is wider than the name field, and the split says what the palette
+            is -- a default row, and a row you opt into. */}
+        <div role="radiogroup" aria-label="Tone" className="grid grid-cols-6 gap-2.5">
           {BOT_TONES.map((t) => (
             <button
               key={t}
               type="button"
               role="radio"
               aria-checked={t === tone}
-              aria-label={`Tone ${t}`}
+              aria-label={BOT_TONE_NAMES[t]}
               tabIndex={t === tone ? 0 : -1}
               onClick={() => onToneChange(t)}
               onKeyDown={radioArrowNav}
@@ -141,7 +153,7 @@ export function NewBotScreen({
                 // which disappears exactly on tone 1 -- the default.
                 t === tone && "ring-2 ring-fg ring-offset-2 ring-offset-surface",
               )}
-              style={{ backgroundColor: TONE_SWATCH[t] }}
+              style={{ backgroundColor: BOT_TONE_FILLS[t] }}
             />
           ))}
         </div>
@@ -194,6 +206,35 @@ export function NewBotScreen({
           </ActionButton>
         </form>
       </div>
+
+      {archived.length > 0 && onRestore && (
+        <div className="flex shrink-0 flex-col gap-3 px-7 pb-5">
+          <p className="text-compact text-fg-muted select-none">Archived</p>
+          <div className="flex flex-col gap-1">
+            {archived.map((bot) => (
+              <div
+                key={bot.id}
+                className="flex items-center gap-3 rounded-default px-2 py-1.5 hover:bg-raised"
+              >
+                <span className="flex w-6 shrink-0 justify-center">
+                  <BotMark size={22} shape={bot.shape} tone={bot.tone} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ui text-fg">{bot.name}</span>
+                <button
+                  type="button"
+                  onClick={() => onRestore(bot.id)}
+                  className={cn(
+                    "shrink-0 rounded-pill px-3 py-1 text-compact font-medium text-fg select-none",
+                    "hover:bg-raised-strong focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
+                  )}
+                >
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex shrink-0 flex-col gap-3 px-7 pb-7">
         <p className="text-compact text-fg-muted select-none">Suggestions</p>

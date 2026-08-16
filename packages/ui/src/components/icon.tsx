@@ -59,6 +59,23 @@ export function SearchIcon(props: IconProps) {
   )
 }
 
+/** Routines. A clock, because the thing it schedules is a time of day. */
+export function ClockIcon(props: IconProps) {
+  return (
+    <svg {...svg(props, "0 0 16 16", 16)}>
+      <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M8 4.6V8l2.4 1.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 /** A wall socket. The same two-slot motif as the bot mark -- Evie's whole idea in one glyph. */
 export function PlugIcon(props: IconProps) {
   return (
@@ -87,6 +104,17 @@ export function ChevronUpDownIcon(props: IconProps) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  )
+}
+
+/** The overflow trigger: everything about a thing that did not earn a button. */
+export function MoreIcon(props: IconProps) {
+  return (
+    <svg {...svg(props, "0 0 16 16", 16)}>
+      <circle cx="3.25" cy="8" r="1.3" fill="currentColor" />
+      <circle cx="8" cy="8" r="1.3" fill="currentColor" />
+      <circle cx="12.75" cy="8" r="1.3" fill="currentColor" />
     </svg>
   )
 }

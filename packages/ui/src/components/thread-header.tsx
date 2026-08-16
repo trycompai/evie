@@ -2,7 +2,8 @@ import type { BotHealth } from "@evie/contracts/bot"
 import { cn } from "@evie/ui/lib/utils"
 import { BotMark, type BotShape, type BotTone } from "@evie/ui/components/bot-mark"
 import { BotStatusDot } from "@evie/ui/components/bot-status-dot"
-import { MonitorIcon } from "@evie/ui/components/icon"
+import { MonitorIcon, MoreIcon } from "@evie/ui/components/icon"
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@evie/ui/components/menu"
 import { StatusChip, type ThreadState } from "@evie/ui/components/status-chip"
 
 /**
@@ -28,6 +29,13 @@ export interface ThreadHeaderProps {
   readonly meter?: React.ReactNode
   readonly computerOpen?: boolean
   readonly onToggleComputer?: () => void
+  /**
+   * The bot's verbs, behind one overflow trigger. Both or neither: the menu
+   * renders only when at least one is given, so the gallery's bare header and
+   * a surface with no bot to manage stay exactly as the design draws them.
+   */
+  readonly onRenameBot?: () => void
+  readonly onDeleteBot?: () => void
 }
 
 export function ThreadHeader({
@@ -39,7 +47,10 @@ export function ThreadHeader({
   meter,
   computerOpen = false,
   onToggleComputer,
+  onRenameBot,
+  onDeleteBot,
 }: ThreadHeaderProps) {
+  const hasMenu = onRenameBot !== undefined || onDeleteBot !== undefined
   return (
     <header
       className="flex h-14 shrink-0 items-center gap-2.5 px-5 select-none"
@@ -55,6 +66,29 @@ export function ThreadHeader({
       <StatusChip state={state} className="shrink-0" />
       <div className="min-w-0 flex-1" />
       {meter}
+      {hasMenu && (
+        <Menu>
+          <MenuTrigger
+            aria-label={`More for ${name}`}
+            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-small text-fg-muted",
+              "hover:text-fg focus-visible:ring-2 focus-visible:ring-focus/50 focus-visible:outline-none",
+              "data-[popup-open]:bg-raised data-[popup-open]:text-fg",
+            )}
+          >
+            <MoreIcon />
+          </MenuTrigger>
+          <MenuPopup>
+            {onRenameBot && <MenuItem onClick={onRenameBot}>Rename bot…</MenuItem>}
+            {onDeleteBot && (
+              <MenuItem destructive onClick={onDeleteBot}>
+                Delete bot…
+              </MenuItem>
+            )}
+          </MenuPopup>
+        </Menu>
+      )}
       <button
         type="button"
         onClick={onToggleComputer}

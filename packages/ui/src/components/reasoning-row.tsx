@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useSmoothText } from "@evie/ui/lib/smooth-text"
 import { cn } from "@evie/ui/lib/utils"
 import { ChevronRightIcon } from "@evie/ui/components/icon"
 
@@ -37,6 +38,9 @@ const format = (n: number): string =>
 
 export function ReasoningRow({ tokens, text, live, onWatch }: ReasoningRowProps) {
   const [open, setOpen] = useState(false)
+  // Reasoning only accumulates while watched, so everything after expand is a
+  // live stream -- the same lumpy 50 ms frames the reply gets, paced the same way.
+  const visible = useSmoothText(text ?? "", live)
 
   const toggle = () => {
     const next = !open
@@ -60,7 +64,7 @@ export function ReasoningRow({ tokens, text, live, onWatch }: ReasoningRowProps)
         <div className="pt-2 pl-[18px]">
           {text ? (
             <p className="border-l border-line-subtle pl-3 text-compact whitespace-pre-wrap text-fg-muted">
-              {text}
+              {visible}
             </p>
           ) : live ? (
             <p className="evie-thinking border-l border-line-subtle pl-3 text-compact text-fg-muted">

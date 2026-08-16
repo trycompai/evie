@@ -1,5 +1,5 @@
 import { cn } from "@evie/ui/lib/utils"
-import { ChevronUpDownIcon, PlugIcon, PlusIcon } from "@evie/ui/components/icon"
+import { ChevronUpDownIcon, ClockIcon, PlugIcon, PlusIcon } from "@evie/ui/components/icon"
 import { MemberAvatar } from "@evie/ui/components/member-chip"
 import { TrafficLights } from "@evie/ui/components/traffic-lights"
 
@@ -21,9 +21,24 @@ export interface RailProps {
   readonly onNewBot?: () => void
   readonly footer: React.ReactNode
   readonly className?: string
+  /**
+   * The scrolling list of rows. `apps/web` hands this `attachGaze` so the bots
+   * in the rail follow the cursor; the marketing site's rail renders on the
+   * server and leaves it off, which is the whole reason this is a ref the app
+   * passes in rather than a wrapper this file draws.
+   */
+  readonly listRef?: React.Ref<HTMLDivElement>
 }
 
-export function Rail({ windowControls, search, children, onNewBot, footer, className }: RailProps) {
+export function Rail({
+  windowControls,
+  search,
+  children,
+  onNewBot,
+  footer,
+  className,
+  listRef,
+}: RailProps) {
   return (
     <aside
       className={cn(
@@ -58,7 +73,9 @@ export function Rail({ windowControls, search, children, onNewBot, footer, class
 
       <div className="flex w-full items-center px-3 pb-3">{search}</div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3">{children}</div>
+      <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3">
+        {children}
+      </div>
 
       <div className="flex shrink-0 flex-col px-3 pt-2 pb-3">{footer}</div>
     </aside>
@@ -100,6 +117,10 @@ export function RailItem({ icon, label, onSelect, trailing }: RailItemProps) {
 
 export function PluginsRailItem({ onSelect }: { readonly onSelect?: () => void }) {
   return <RailItem icon={<PlugIcon />} label="Plugins" onSelect={onSelect} />
+}
+
+export function RoutinesRailItem({ onSelect }: { readonly onSelect?: () => void }) {
+  return <RailItem icon={<ClockIcon />} label="Routines" onSelect={onSelect} />
 }
 
 export interface AccountRowProps {

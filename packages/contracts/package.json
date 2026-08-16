@@ -7,6 +7,7 @@
     "./ids": "./src/ids.ts",
     "./version": "./src/version.ts",
     "./bot": "./src/bot.ts",
+    "./routine": "./src/routine.ts",
     "./thread": "./src/thread.ts",
     "./timeline": "./src/timeline.ts",
     "./commands": "./src/commands.ts",

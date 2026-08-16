@@ -1,4 +1,4 @@
-import { parseAsArrayOf, parseAsString } from "nuqs"
+import { parseAsArrayOf, parseAsString, parseAsStringLiteral } from "nuqs"
 
 /**
  * Query state.
@@ -7,8 +7,8 @@ import { parseAsArrayOf, parseAsString } from "nuqs"
  * string is state that *refines* a place rather than names one, which is the
  * split T3 Code draws and the one that keeps a conversation link readable.
  *
- * There is one such thing today. Parsers live here rather than inline so a
- * future link-builder agrees with the screen by construction.
+ * Parsers live here rather than inline so a future link-builder agrees with
+ * the screen by construction.
  */
 
 /**
@@ -19,3 +19,11 @@ import { parseAsArrayOf, parseAsString } from "nuqs"
  * trace in the address bar.
  */
 export const connectedAppsParser = parseAsArrayOf(parseAsString).withDefault([])
+
+/**
+ * The Computer pane, one param carrying both facts: absent is closed, and the
+ * value is the open tab. Two params would let a link say "closed, on the
+ * Terminal tab", which is not a state the screen has. No default on purpose --
+ * null IS the closed state, and it keeps a plain conversation link plain.
+ */
+export const computerTabParser = parseAsStringLiteral(["files", "terminal", "browser"] as const)

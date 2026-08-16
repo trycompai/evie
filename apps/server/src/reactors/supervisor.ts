@@ -7,7 +7,7 @@ import {
   type StoredEvent,
 } from "@evie/contracts/events"
 import type { BotId, ThreadId } from "@evie/contracts/ids"
-import { Context, Effect, FiberMap, Layer } from "effect"
+import { Context, Effect, FiberMap, Layer, Result } from "effect"
 import type { SqlError } from "effect/unstable/sql/SqlError"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { EvieConfig } from "../config.ts"
@@ -46,7 +46,8 @@ export interface RuntimeControlShape {
   readonly acquire: (
     botId: BotId,
   ) => Effect.Effect<{ readonly port: number; readonly fresh: boolean }, RuntimeUnavailable>
-  readonly stop: (botId: BotId, reason: "idle" | "shutdown") => Effect.Effect<void>
+  /** `reload` is a config change the running process cannot see; acquire is lazy, so stopping is the fix. */
+  readonly stop: (botId: BotId, reason: "idle" | "shutdown" | "reload") => Effect.Effect<void>
 }
 
 export class RuntimeControl extends Context.Service<RuntimeControl, RuntimeControlShape>()(
@@ -275,61 +276,104 @@ const make = Effect.gen(function* () {
     })
 
   /**
-   * Writes the bot's eve project and installs it, then settles the health chip.
+   * Writes the bot's eve project, installs it, boots its runtime, then settles
+   * the health chip. `BotProvisioned` means the runtime answered its health
+   * route -- not merely "files on disk" -- because the chip's `starting` is the
+   * creation screen's gate, and a gate that drops while the first message
+   * would still wait 30-plus seconds for a cold boot is a gate that lies.
    *
-   * This is slow -- `git init` plus `npm install` in the bot directory, because
-   * eve is pinned per bot (decision 014) -- which is precisely why it is here
-   * and not in the projector. The bot row already exists at `starting`; one of
-   * these two receipts moves it to `idle` or `unhealthy`.
+   * This is slow -- `git init` plus `npm install` plus an eve boot, because eve
+   * is pinned per bot (decision 014) -- which is precisely why it is here and
+   * not in the projector. The bot row already exists at `starting`; one of
+   * these two receipts moves it on.
    *
    * A failure is reported, not retried into oblivion: a bot whose project never
    * installed will never answer, and a chip that says why beats a bot that
    * looks fine and silently does nothing on the first message.
    */
   const provision = (event: StoredEvent, botId: BotId, name: string, model: string) =>
-    scaffold
-      .create({
-        orgId: event.orgId as Parameters<typeof scaffold.create>[0]["orgId"],
-        botId,
-        name,
-        model,
-      })
-      .pipe(
-        Effect.as(
-          store.append(
-            [
-              {
-                id: deriveUlid(event.id, botId, "provisioned"),
-                data: BotProvisioned.make({ botId }),
-                orgId: event.orgId,
-                botId,
-              },
-            ],
-            { aggregate: { kind: "bot", id: botId } },
-          ) as Commit,
-        ),
-        Effect.catch((failure) =>
-          Effect.logError("SupervisorReactor: provisioning failed", { botId }, failure).pipe(
-            Effect.as(
-              store.append(
-                [
-                  {
-                    id: deriveUlid(event.id, botId, "provision-failed"),
-                    data: BotProvisionFailed.make({
-                      botId,
-                      reason: failure.step,
-                      stderr: tail(failure.detail),
-                    }),
-                    orgId: event.orgId,
-                    botId,
-                  },
-                ],
-                { aggregate: { kind: "bot", id: botId } },
-              ) as Commit,
+    Effect.gen(function* () {
+      /*
+       * Replayed `BotCreated` events land here on every boot (see `handle`).
+       * The success receipt makes them cheap -- and keeps a restart from
+       * booting every bot's runtime just to prove what the log already says.
+       * A *failed* provision deliberately has no such receipt, so it retries:
+       * a transient npm failure heals on the next boot.
+       */
+      const settled = yield* sql<{ n: number | bigint }>`
+        select count(*) as n from event
+        where session_id = '' and type = 'BotProvisioned' and bot_id = ${botId}`
+      if (Number(settled[0]?.n ?? 0) > 0) return
+
+      const outcome = yield* scaffold
+        .create({
+          orgId: event.orgId as Parameters<typeof scaffold.create>[0]["orgId"],
+          botId,
+          name,
+          model,
+        })
+        .pipe(
+          // The boot is part of the proof. `acquire` waits for eve's health
+          // route, so success here means the bot can actually take a message.
+          Effect.andThen(
+            control.acquire(botId).pipe(
+              Effect.mapError((error) => ({
+                step: "runtime",
+                detail: [error.reason, ...(error.stderr ?? [])].join("\n"),
+              })),
             ),
           ),
-        ),
-      )
+          Effect.result,
+        )
+
+      if (Result.isFailure(outcome)) {
+        const failure = outcome.failure
+        yield* Effect.logError("SupervisorReactor: provisioning failed", { botId }, failure)
+        return store.append(
+          [
+            {
+              id: deriveUlid(event.id, botId, "provision-failed"),
+              data: BotProvisionFailed.make({
+                botId,
+                reason: failure.step,
+                stderr: tail(failure.detail),
+              }),
+              orgId: event.orgId,
+              botId,
+            },
+          ],
+          { aggregate: { kind: "bot", id: botId } },
+        ) as Commit
+      }
+
+      // The runtime is up with no turn to settle and maybe nobody watching;
+      // arm the idle clock so a bot created and abandoned still goes to sleep.
+      yield* armIdle(botId, event.orgId)
+
+      const runtime = outcome.success
+      return store.append(
+        [
+          {
+            id: deriveUlid(event.id, botId, "provisioned"),
+            data: BotProvisioned.make({ botId }),
+            orgId: event.orgId,
+            botId,
+          },
+          // Same rule as `warm`: only the call that started the runtime says so.
+          ...(runtime.fresh
+            ? [
+                {
+                  id: deriveUlid(event.id, botId, "ready"),
+                  data: RuntimeReady.make({ botId, port: runtime.port }),
+                  orgId: event.orgId,
+                  botId,
+                },
+              ]
+            : []),
+        ],
+        { aggregate: { kind: "bot", id: botId } },
+      ) as Commit
+    })
 
   /**
    * `eve set --model … --reasoning …` in the bot directory, reusing eve's own
@@ -401,6 +445,23 @@ const make = Effect.gen(function* () {
           // A streaming turn is alive by definition; keep its runtime out of
           // the idle window without touching acquire on the hot path.
           return cancelIdle(data.botId)
+        case "ServiceConnected":
+        case "ServiceDisconnected":
+        case "GrantLinked":
+        case "GrantRevoked":
+          /*
+           * Connections are files, and `eve dev` reads them at boot. Adding one
+           * therefore does nothing to a runtime that is already up -- the tools
+           * simply never appear, and the bot says it has no way to reach the
+           * service it was just given.
+           *
+           * Disconnecting is the direction that matters: leaving the old
+           * runtime alive keeps a revoked integration working, which is the
+           * worst way for this to fail. Stopping is the whole fix, because
+           * acquire is lazy -- the next message starts a runtime that
+           * reconciles `agent/connections/` and picks up the new token.
+           */
+          return control.stop(data.botId, "reload")
         case "TurnSettled":
           return Effect.gen(function* () {
             if ((yield* activeTurnCount(data.botId)) > 0) return

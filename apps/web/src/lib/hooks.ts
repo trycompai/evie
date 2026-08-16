@@ -73,6 +73,24 @@ export function useTimelineItem(threadId: ThreadId, itemId: string): TimelineIte
 }
 
 /**
+ * The Computer pane's Terminal tab: what the thread's `bash` runs printed.
+ *
+ * Its own subscription rather than `useThread` because a run's output lands as
+ * a `replace` of a known row -- a frame the thread-level channel is
+ * deliberately deaf to. The lines are derived in the store from rows it
+ * already holds, so opening the tab costs nothing on the wire.
+ */
+export function useTerminal(threadId: ThreadId): readonly string[] {
+  const { store } = useRuntime()
+  const subscribe = useCallback(
+    (cb: () => void) => store.subscribeTerminal(threadId)(cb),
+    [store, threadId],
+  )
+  const snapshot = useCallback(() => store.getTerminalSnapshot(threadId), [store, threadId])
+  return useSyncExternalStore(subscribe, snapshot)
+}
+
+/**
  * One bot's files, for the Computer pane.
  *
  * The only hook here that fetches, and the one place the fleet's rule is

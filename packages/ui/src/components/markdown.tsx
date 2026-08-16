@@ -1,4 +1,5 @@
 import { memo, useMemo } from "react"
+import { useSmoothText } from "@evie/ui/lib/smooth-text"
 import { cn } from "@evie/ui/lib/utils"
 
 /**
@@ -187,8 +188,20 @@ const BlockView = memo(function BlockView({ block }: { readonly block: Block }) 
   }
 })
 
-export const Markdown = memo(function Markdown({ source }: { readonly source: string }) {
-  const blocks = useMemo(() => splitBlocks(source), [source])
+export const Markdown = memo(function Markdown({
+  source,
+  streaming = false,
+}: {
+  readonly source: string
+  /**
+   * Set while `source` is receiving deltas. Paces the reveal so the 50 ms
+   * lumps the wire delivers read as writing; see `lib/smooth-text.ts`. Costs
+   * nothing when false, which is every row but one.
+   */
+  readonly streaming?: boolean
+}) {
+  const visible = useSmoothText(source, streaming)
+  const blocks = useMemo(() => splitBlocks(visible), [visible])
   return (
     <div className="flex flex-col gap-4">
       {blocks.map((block, i) => (

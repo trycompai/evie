@@ -76,7 +76,7 @@ function renderParts(
     const part = run[0]!
     switch (part.type) {
       case "text":
-        return <Markdown key={i} source={part.text} />
+        return <Markdown key={i} source={part.text} streaming={live} />
       case "reasoning":
         return (
           <ReasoningRow

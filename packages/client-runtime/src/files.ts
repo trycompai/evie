@@ -133,6 +133,10 @@ const flatten = (
 	const rows: FileRow[] = [];
 	const walk = (path: string, depth: number) => {
 		for (const node of children.get(path) ?? []) {
+			// Dotfiles are the machinery -- `.eve`, `.git`, `.gitignore` -- and the
+			// pane is for the bot's work. Filtered here rather than in `computer.list`
+			// so the RPC stays a faithful listing a later "show hidden" can use.
+			if (node.name.startsWith(".")) continue;
 			const expanded = node.kind === "dir" && open.has(node.path);
 			rows.push({
 				path: node.path,

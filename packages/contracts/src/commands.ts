@@ -1,5 +1,12 @@
 import { Schema } from "effect"
-import { CreateBotInput, ModelRef, NetworkPolicy, ReasoningEffort, SandboxBackend } from "./bot.ts"
+import {
+  ConnectionConfig,
+  CreateBotInput,
+  ModelRef,
+  NetworkPolicy,
+  ReasoningEffort,
+  SandboxBackend,
+} from "./bot.ts"
 import {
   BlobId,
   BotId,
@@ -173,7 +180,7 @@ export const ConnectService = Schema.TaggedStruct("ConnectService", {
   kind: Schema.Literals(["mcp", "openapi"]),
   /** `org` is one shared credential; `member` resolves each person's own account. */
   scope: Schema.Literals(["org", "member"]),
-  config: Schema.Unknown,
+  config: ConnectionConfig,
   authKind: Schema.Literals(["none", "token", "interactive"]),
 })
 export const DisconnectService = Schema.TaggedStruct("DisconnectService", {

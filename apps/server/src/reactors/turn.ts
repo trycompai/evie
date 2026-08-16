@@ -161,6 +161,16 @@ const TERMINAL_SESSION = new Set(["session.failed", "session.ended", "session.ab
 const turnIdFor = (triggerEventId: string, botId: BotId): TurnId =>
   deriveUlid(triggerEventId, botId, "turn") as TurnId
 
+/**
+ * What a freshly provisioned bot is asked so its first words are its own.
+ * The prompt is invisible in Evie's timeline -- only `MessageSent` events
+ * render as user bubbles -- so the user sees the introduction alone.
+ */
+const GREETING_PROMPT =
+  "You were just created and this is your first conversation. Greet the user in one or two " +
+  "short sentences: say who you are and what you can help with, going by your name and " +
+  "instructions. Do not use tools, ask nothing, and do not mention this message."
+
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const store = yield* EventStore
@@ -266,6 +276,72 @@ const make = Effect.gen(function* () {
   })
 
   /**
+   * The bot speaks first.
+   *
+   * `BotProvisioned` now lands only after the runtime answered its health
+   * route, so this turn is the last unproven link: dispatch, model call,
+   * stream, timeline. Running it before the user types anything means the
+   * creation screen hands over to a bot that is visibly talking -- and a
+   * missing credential surfaces here, at creation, instead of eating the
+   * user's first real message.
+   *
+   * Attributed to the bot's creator, the same rule `RoutineReactor` uses for a
+   * routine with no pinned member. Skipped, not queued, when the bot has no
+   * thread yet: only the create flow opens one immediately, and a bot created
+   * headless (the API, a fork's script) greeting an empty room helps nobody.
+   */
+  const greet = Effect.fn("TurnReactor.greet")(function* (
+    event: StoredEvent,
+    botId: BotId,
+    already: ReadonlySet<string>,
+  ) {
+    const turnId = deriveUlid(event.id, botId, "greeting") as TurnId
+    if (already.has(turnId)) return
+    const threads = yield* sql<{ thread_id: string }>`
+      select tp.thread_id from thread_participant tp
+      join thread t on t.id = tp.thread_id
+      where tp.bot_id = ${botId} and t.archived_at is null
+      order by t.created_at asc limit 1`
+    const threadId = threads[0]?.thread_id as ThreadId | undefined
+    if (threadId === undefined) {
+      return yield* Effect.logInfo("TurnReactor: provisioned bot has no thread; skipping greeting", {
+        botId,
+      })
+    }
+    /** BotCreated always came from a command, so its stored event has the actor. */
+    const creators = yield* sql<{ actor_user_id: string | null }>`
+      select actor_user_id from event
+      where session_id = '' and type = 'BotCreated' and bot_id = ${botId}
+      limit 1`
+    const actingAs = (creators[0]?.actor_user_id ?? null) as UserId | null
+    if (actingAs === null) {
+      return yield* Effect.logWarning("TurnReactor: no creator to attribute the greeting to", {
+        botId,
+      })
+    }
+    const { sessionId } = yield* dispatch.dispatchTurn({
+      botId,
+      threadId,
+      // Provisioning just finished, so there is no session yet.
+      sessionId: null,
+      turnId,
+      actingAs,
+      message: GREETING_PROMPT,
+      // Nothing to steer; and if a message races in, the human goes first.
+      turnPolicy: "queue",
+    })
+    return dispatchCommit(sql, store, {
+      triggerEventId: event.id,
+      orgId: event.orgId,
+      threadId,
+      botId,
+      turnId,
+      sessionId,
+      actingAs,
+    })
+  })
+
+  /**
    * Sends what arrived while the bot was still being installed.
    *
    * Creating a bot and immediately saying hello is the first thing anyone
@@ -299,11 +375,14 @@ const make = Effect.gen(function* () {
         where e.session_id = '' and e.type = 'MessageSent'
           and e.thread_id in (select thread_id from thread_participant where bot_id = ${botId})
         order by e.seq asc`
-      if (pending.length === 0) return
       const dispatched = yield* sql<{ turn_id: string }>`
         select json_extract(data, '$.turnId') as turn_id from event
         where session_id = '' and type = 'TurnDispatched' and bot_id = ${botId}`
       const already = new Set(dispatched.map((row) => row.turn_id))
+      // Nothing waiting: the bot speaks first instead. Answering a waiting
+      // message is a better proof of life than a scripted hello, so the two
+      // paths are exclusive.
+      if (pending.length === 0) return yield* greet(event, botId, already)
 
       const commits: Array<Commit> = []
       for (const row of pending) {

@@ -13,7 +13,7 @@ import { JOBS } from "~/content/site"
 
 export function Jobs() {
   return (
-    <Section className="py-20 tablet:py-28">
+    <Section alive className="py-20 tablet:py-28">
       <div className="flex w-full max-w-[1200px] flex-wrap items-center justify-center gap-12 desktop:gap-25">
         <div className="flex w-[480px] max-w-full shrink-0 flex-col gap-5">
           <SectionHeading>{JOBS.heading}</SectionHeading>

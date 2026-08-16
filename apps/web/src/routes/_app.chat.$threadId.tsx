@@ -72,6 +72,16 @@ function ChatRoute() {
       onWatchReasoning={(id, itemId, watching) =>
         runtime.presence.watchReasoning(id, itemId, watching)
       }
+      onRenameBot={(botId, name) =>
+        // The description rides along unchanged: `RenameBot` writes both, and
+        // omitting it here would null the description as a side effect.
+        void runtime.commands.renameBot(botId, name, bot.description)
+      }
+      onDeleteBot={(botId) =>
+        // Deleting the bot delists this conversation, so leave it rather than
+        // strand the user on the "isn't available here" pane.
+        void runtime.commands.archiveBot(botId).then(() => navigate({ to: "/" }))
+      }
     />
   )
 }

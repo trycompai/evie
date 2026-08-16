@@ -78,13 +78,18 @@ const SecretsLive = Secrets.layer.pipe(Layer.provide([DbLive, ConfigLive]), Laye
 const NodeLive = NodeServices.layer
 const HttpClientLive = NodeHttpClient.layerUndici
 
-/** `Secrets` rides along because the spawn env is where BYOK keys land (05). */
+const ScaffoldLive = Scaffold.layer.pipe(Layer.provide([ConfigLive, NodeLive]))
+
+/**
+ * `Secrets` rides along because the spawn env is where BYOK keys land (05).
+ * `Scaffold` rides along because every spawn rewrites the Evie-owned files
+ * first, so a bot scaffolded months ago boots with the current channel,
+ * sandbox, and capability briefing.
+ */
 const SupervisorLive = Supervisor.layer.pipe(
-  Layer.provide([ConfigLive, DbLive, NodeLive, HttpClientLive, SecretsLive]),
+  Layer.provide([ConfigLive, DbLive, NodeLive, HttpClientLive, SecretsLive, ScaffoldLive]),
   Layer.provide(SchemaLive),
 )
-
-const ScaffoldLive = Scaffold.layer.pipe(Layer.provide([ConfigLive, NodeLive]))
 
 const AdapterLive = EveAdapter.layer.pipe(
   Layer.provide([

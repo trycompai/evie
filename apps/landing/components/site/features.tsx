@@ -27,7 +27,7 @@ export function Features() {
   const [first, second] = FEATURES.cards
 
   return (
-    <Section id="product" className="pt-20 pb-24 tablet:pt-28 tablet:pb-30">
+    <Section alive id="product" className="pt-20 pb-24 tablet:pt-28 tablet:pb-30">
       <SectionHeading className="text-center">{FEATURES.heading}</SectionHeading>
       <SectionLede className="w-[600px] max-w-full pt-4 text-center text-lede">
         {FEATURES.lede}

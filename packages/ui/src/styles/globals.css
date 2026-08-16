@@ -67,6 +67,22 @@
   --color-traffic-minimize: #febc2e;
   --color-traffic-zoom: #28c840;
 
+  /*
+   * Bot tone hues -- an Evie addition, not from the Paper file. Fills for
+   * BotMark tones 7-12, referenced only from inline styles so they live here
+   * in plain CSS (an @theme entry no utility names would be tree-shaken).
+   * Mid-lightness and low chroma on purpose: they must clear both themes'
+   * surface colour so the punched eyes read (gold is the exception and maps
+   * its eyes to ink -- see TONE_EYES in bot-mark.tsx), and they must stay
+   * duller than the status colours so a coloured face never reads as a state.
+   */
+  --color-bot-blue: oklch(56% 0.12 252);
+  --color-bot-teal: oklch(58% 0.09 195);
+  --color-bot-olive: oklch(56% 0.1 130);
+  --color-bot-violet: oklch(52% 0.13 300);
+  --color-bot-rose: oklch(60% 0.12 15);
+  --color-bot-gold: oklch(78% 0.11 85);
+
   /* --- 2. semantics (light) --------------------------------------------- */
   --color-surface-primary: var(--color-white);
   --color-surface-secondary: var(--color-background-subtle);
@@ -415,12 +431,188 @@
   .evie-enter {
     animation: evie-enter 400ms var(--ease-out) backwards;
   }
+
+  /*
+   * A bot's eyes, following the pointer. `lib/gaze.ts` writes a target
+   * transform here at most once a frame and only while the pointer is inside
+   * the region it watches; this transition is what turns those discrete targets
+   * into weighted motion, and what eases the eyes back to centre when the
+   * pointer leaves.
+   *
+   * So the loop is the *user's* hand, not a timer: no pointer, no repaint. It
+   * is short on purpose -- long enough that the eyes have mass, short enough
+   * that they never feel like they are lagging behind the cursor.
+   *
+   * Deliberately no `will-change`: a rail of twelve marks would promote
+   * twenty-four layers for the entire session to save a repaint of a 34px box.
+   */
+  .evie-gaze {
+    transition: transform 180ms var(--ease-out);
+  }
+
+  /*
+   * Waking up: a bot that has just come into being. The mark pops and settles,
+   * then the eyes open and take a look around before settling on you.
+   *
+   * This is the delight tier and nothing else gets it -- a bot being created,
+   * and the first-run heroes. It plays once on mount and stops. Never put it on
+   * a mark that redraws often; twelve rail rows waking on every navigation is
+   * the exact noise the no-repaint rule exists to prevent.
+   */
+  .evie-wake {
+    animation: evie-wake 560ms var(--ease-out) backwards;
+  }
+
+  .evie-wake-eyes {
+    /*
+     * Resolves `transform-origin` against the two slots' own box, so the shut
+     * eyes squash to their own middle rather than to the top-left of the
+     * 34-unit viewBox.
+     */
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: evie-wake-eyes 900ms var(--ease-out) 80ms backwards;
+  }
+
+  /*
+   * A bot with its hands full: the face while its computer is being built.
+   *
+   * The second looping indicator in the app, and it replaces a use of the
+   * first. `CreatingPane` used to append `.evie-thinking`'s ellipsis to "<name>
+   * is being created", which grew and shrank three characters under a centred
+   * line and dragged the whole line with it -- a layout shift, four times a
+   * second, for the minute or two the wait lasts. The face is the better place
+   * for that signal regardless: it is what the user is already looking at, and
+   * it can say "alive" without spending a word or a pixel of layout.
+   *
+   * `step-end` is doing two jobs. It holds the whole loop to seven discrete
+   * changes across 4.8s -- under two repaints a second, against the four the
+   * ellipsis cost -- and it is also what makes the motion read correctly. Real
+   * eyes saccade: they hold a fixation and jump to the next. Interpolating
+   * between glances would be both more expensive and less alive.
+   */
+  .evie-busy-eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: evie-busy-eyes 4.8s step-end infinite;
+  }
 }
 
 @keyframes evie-enter {
   from {
     opacity: 0;
     transform: translateY(8px);
+  }
+}
+
+/*
+ * Overshoot, undershoot, settle -- one bounce, damped. The dip past 1 is what
+ * separates a bounce from a pop; without it the mark just swells and stops.
+ *
+ * A third swing would be a cartoon, and you would see it every time you made a
+ * bot. Opacity is done well before the scale is, so the mark is solid while it
+ * bounces rather than fading through the whole move.
+ */
+@keyframes evie-wake {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  25% {
+    opacity: 1;
+  }
+  45% {
+    transform: scale(1.1);
+  }
+  72% {
+    transform: scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/*
+ * Shut, open, a look either way, a blink, then it settles on you.
+ *
+ * Every stop names the same two functions in the same order so the browser
+ * interpolates them component-wise; drop `scaleY` from one and it silently
+ * falls back to matrix interpolation and the eyes skew through the turn.
+ *
+ * Two details do most of the work. The counter-look is shorter than the first
+ * one -- equal swings read as a metronome, as something being animated, while
+ * uneven ones read as something looking around. And the blink lands mid-return
+ * rather than at a standstill, because that is when a real one happens; parked
+ * at either end it looks like a separate effect played after the move.
+ *
+ * Travel stays inside `REACH_X` in `lib/gaze.ts`, which is set by how little
+ * room the triangle's slots have before they reach its edge.
+ */
+@keyframes evie-wake-eyes {
+  0% {
+    transform: translateX(0) scaleY(0.06);
+  }
+  9% {
+    transform: translateX(0) scaleY(1);
+  }
+  16% {
+    transform: translateX(0) scaleY(1);
+  }
+  34% {
+    transform: translateX(-3.2px) scaleY(1);
+  }
+  54% {
+    transform: translateX(2.6px) scaleY(1);
+  }
+  64% {
+    transform: translateX(2.6px) scaleY(1);
+  }
+  70% {
+    transform: translateX(1.7px) scaleY(0.1);
+  }
+  77% {
+    transform: translateX(1px) scaleY(1);
+  }
+  100% {
+    transform: translateX(0) scaleY(1);
+  }
+}
+
+/*
+ * Look away, blink, look the other way, blink, and round again. Every stop is
+ * a state the face holds, not a point it passes through -- `step-end` snaps
+ * between them, so the two 96ms shuts are blinks rather than squints and the
+ * long holds cost nothing at all.
+ *
+ * The holds are deliberately uneven. A face that glances on a fixed beat is a
+ * metronome with eyes; the whole point of this one is that something is going
+ * on behind it.
+ */
+@keyframes evie-busy-eyes {
+  0% {
+    transform: translateX(0) scaleY(1);
+  }
+  22% {
+    transform: translateX(-2.4px) scaleY(1);
+  }
+  40% {
+    transform: translateX(-2.4px) scaleY(0.08);
+  }
+  42% {
+    transform: translateX(1.9px) scaleY(1);
+  }
+  68% {
+    transform: translateX(0) scaleY(1);
+  }
+  86% {
+    transform: translateX(0) scaleY(0.08);
+  }
+  88% {
+    transform: translateX(0) scaleY(1);
+  }
+  100% {
+    transform: translateX(0) scaleY(1);
   }
 }
 

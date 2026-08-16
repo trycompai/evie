@@ -85,13 +85,28 @@ That is the first thing being built.
 ## Make a bot
 
 A bot is a role you set up once and keep talking to — "Inbox", "Researcher",
-"Ops". Give it a name and a face and it exists.
+"Ops". Give it a name and a face and it exists. The face picker offers six
+shapes and twelve colours — six neutral steps and six hues — and the eyes stay
+readable on every one of them, in both light and dark mode.
 
-Creating one writes a small project to disk and installs its dependencies, so
-the first bot takes a minute and **needs network access, `git`, and `npm`**.
-While that runs, the conversation says the bot is being created and the
-composer waits; it opens the moment the bot is ready to talk. If the install
-failed, the bot shows as *unhealthy* with the step that broke.
+## Rename or delete a bot
+
+Both live in two places: the **⋯** menu beside the bot's name at the top of
+its conversation, and a **right-click on the bot's row in the sidebar**.
+
+Renaming is just a rename — conversations, files, and memory all stay.
+
+Deleting a bot takes it out of your sidebar and stops it taking work, but
+nothing is destroyed: its computer and its conversations are kept. To bring it
+back, open **New bot** — deleted bots are listed there under **Archived**, one
+click from restored, with their conversations exactly where they were.
+
+Creating one writes a small project to disk, installs its dependencies, and
+starts it, so the first bot takes a minute and **needs network access, `git`,
+and `npm`**. While that runs, the conversation says the bot is being created
+and the composer waits. The wait ends with the bot introducing itself — that
+greeting is the proof the whole path works, not just a label saying so. If
+setup failed, the bot shows as *unhealthy* with the step that broke.
 
 Each bot gets its own computer: a filesystem and a shell, sandboxed, persisting
 between conversations.
@@ -134,6 +149,32 @@ allow … for this session** before you answer. The next time that same tool
 comes up in the same conversation, it goes ahead without asking. The grant is
 exactly as narrow as it sounds: one tool, one session. Start a new session and
 it asks again.
+
+## Put a bot on a schedule
+
+**Routines** in the sidebar runs a bot on a cadence with nobody watching — a
+morning digest, a nightly sweep, a check every fifteen minutes.
+
+A routine is a prompt plus a cadence. Pick daily, weekdays, weekly, hourly, or
+every few minutes, and if none of those fit, write a cron expression instead.
+The row then says what you chose in words — *Weekdays at 9:00 AM* — rather than
+making you re-read the cron to find out.
+
+The timezone is stored on the routine, not taken from the machine, and it
+defaults to yours. That is deliberate: a server in another zone, or a laptop
+that crosses one, must not quietly move your 9am to somebody else's.
+
+Nobody is there when it runs, so say in the prompt what to do when there is
+nothing to report — otherwise you get a message every morning telling you there
+was nothing to tell you. A routine cannot stop to ask you a question.
+
+**Pause** takes one out of service and gives it back with the same button.
+Deleting is separate, and permanent.
+
+One routine can stop on its own: if it was pinned to run as a person and that
+person leaves the organization, it blocks itself and the row says so. That is
+not the same as paused — resuming will not fix it, because the thing to fix is
+who it runs as.
 
 ## Reading while it is still writing
 
@@ -196,13 +237,22 @@ So you do not go looking:
 - **No installer, no signing, no auto-update**, and the desktop app is macOS
   only for now. You build it from the repository.
 - **No settings** — no model picker, no key entry, no sandbox controls.
-- **No routines, connections, or plugins.** The Plugins window opens and is
-  empty; connecting a service does not yet reach the agent.
+- **No plugin marketplace.** The Plugins window opens and is empty — the
+  curated catalog has not been written. Connecting a service by hand works
+  (see *Put a bot on a schedule* and below), but there is nothing to browse.
+- **Per-member connections do not work yet.** A connection where each person
+  signs in with their own account will show as connected and give the bot
+  nothing, because the sign-in flow behind it has not been built. Connections
+  the whole organization shares — one credential, one account — do work.
 - **No members, invitations, or teams**, though the database has been ready for
   them since the first migration.
-- **No snooze or archive** in the interface, though the commands exist.
-- **Only Files works in a bot's computer.** Terminal and Browser are there and
-  empty, and no file opens when you click it.
+- **No snooze or archive for conversations** in the interface, though the
+  commands exist. Bots themselves can be renamed, deleted, and restored — see
+  above.
+- **A bot's computer is partly built.** Files lists what the bot has (its
+  housekeeping dotfiles are hidden), and Terminal shows every shell command the
+  bot has run in the open conversation and what it printed. Browser is there
+  and empty, and no file opens when you click it.
 - **No remote access** — no pairing, no LAN mode you can reach from a phone.
 - **No way to see a diff.** A turn now tells you how many files it changed and
   by how much, and you can restore a checkpoint — but there is nowhere to read

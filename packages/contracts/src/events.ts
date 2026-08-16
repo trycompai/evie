@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import { NetworkPolicy, SandboxBackend } from "./bot.ts"
+import { ConnectionConfig, NetworkPolicy, SandboxBackend } from "./bot.ts"
 import {
   BotId,
   ConnectionId,
@@ -172,8 +172,8 @@ export const ServiceConnected = Schema.TaggedStruct("ServiceConnected", {
   name: Schema.String,
   kind: Schema.String,
   scope: Schema.String,
-  /** url/spec, filters, approval policy. Never a credential -- those live in `secret`. */
-  config: Schema.Unknown,
+  /** Where the service lives. Never a credential -- those live in `secret`. */
+  config: ConnectionConfig,
   authKind: Schema.Literals(["none", "token", "interactive"]),
 })
 export const ServiceDisconnected = Schema.TaggedStruct("ServiceDisconnected", {

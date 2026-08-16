@@ -38,7 +38,8 @@ export function MeetEvieScreen({ onNext, onSkip, desktop = false }: MeetEvieScre
       <h1 className="evie-enter text-page-title tracking-section text-fg">Meet Evie</h1>
 
       <div className="evie-enter flex flex-col items-center gap-8 [animation-delay:60ms]">
-        <BotMark size={88} tone={1} label="Evie" />
+        {/* The first bot face a user ever sees, so it is the first one to wake. */}
+        <BotMark size={88} tone={1} label="Evie" mood="waking" />
 
         <div className="flex w-[620px] max-w-full flex-col gap-3.5 rounded-bubble bg-raised px-[18px] py-4">
           {/* 17px is off the type scale on purpose: this line is a specimen of

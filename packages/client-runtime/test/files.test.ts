@@ -108,6 +108,23 @@ describe("the bot's file tree", () => {
 		expect(store.getFilesSnapshot(bot).rows[0]?.expanded).toBe(false);
 	});
 
+	it("hides dotfiles at every depth", async () => {
+		const { store } = harness({
+			"/": [
+				dir("/.git", ".git"),
+				dir("/src", "src"),
+				file("/.gitignore", ".gitignore"),
+				file("/package.json", "package.json"),
+			],
+			"/src": [file("/src/.env", ".env"), file("/src/main.ts", "main.ts")],
+		});
+		await store.browseFiles(bot);
+		await store.toggleDirectory(bot, "/src");
+
+		// `.eve`, `.git` and friends are the machinery, not the bot's work.
+		expect(drawn(store)).toEqual(["src", "  main.ts", "package.json"]);
+	});
+
 	it("caches the snapshot so useSyncExternalStore does not loop", async () => {
 		const { store } = harness({ "/": [file("/notes.md", "notes.md")] });
 		await store.browseFiles(bot);

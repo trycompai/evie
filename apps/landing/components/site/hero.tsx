@@ -1,6 +1,7 @@
 import { ChatScreen } from "~/components/screens/chat-screen"
 import { FIT, ScreenFrame } from "~/components/screens/screen-frame"
 import { EvieMark, PoweredByEve } from "~/components/site/brand"
+import { GazeArea } from "~/components/site/gaze-area"
 import { ActionPair } from "~/components/site/primitives"
 import { HERO } from "~/content/site"
 
@@ -15,7 +16,7 @@ import { HERO } from "~/content/site"
 
 export function Hero() {
   return (
-    <section className="flex w-full shrink-0 flex-col items-center bg-surface px-10 pt-14 pb-24 tablet:pt-[72px] tablet:pb-32">
+    <GazeArea className="flex w-full shrink-0 flex-col items-center bg-surface px-10 pt-14 pb-24 tablet:pt-[72px] tablet:pb-32">
       <p className="flex h-[30px] shrink-0 items-center gap-2.5 rounded-pill border border-line-subtle bg-surface pr-3 pl-1.5 select-none">
         <span className="flex h-5 items-center rounded-pill bg-raised px-2 font-mono text-[11px] font-medium tracking-[0.06em] text-fg">
           {HERO.badge}
@@ -51,7 +52,7 @@ export function Hero() {
           <ChatScreen />
         </ScreenFrame>
       </div>
-    </section>
+    </GazeArea>
   )
 }
 

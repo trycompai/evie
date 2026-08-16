@@ -1,16 +1,20 @@
 import { useState } from "react"
+import { useQueryState } from "nuqs"
 import type { Bot } from "@evie/contracts/bot"
-import type { ThreadId, TurnId } from "@evie/contracts/ids"
+import type { BotId, ThreadId, TurnId } from "@evie/contracts/ids"
 import type { Thread } from "@evie/contracts/thread"
 import { BotMark, markOf } from "@evie/ui/components/bot-mark"
 import type { BotShape, BotTone } from "@evie/ui/components/bot-mark"
-import { ComputerPane, TerminalView, type ComputerTab } from "@evie/ui/components/computer-pane"
+import { ComputerPane } from "@evie/ui/components/computer-pane"
 import { Composer } from "@evie/ui/components/composer"
 import { DayDivider } from "@evie/ui/components/message"
 import { ThreadHeader } from "@evie/ui/components/thread-header"
+import { BotDialogs, type BotDialogKind } from "~/components/bot-dialogs.tsx"
 import { FileTree } from "~/components/file-tree.tsx"
+import { Terminal } from "~/components/terminal.tsx"
 import { Timeline } from "~/components/timeline.tsx"
 import { formatDayDivider } from "~/lib/format.ts"
+import { computerTabParser } from "~/lib/url-state.ts"
 
 /**
  * The thread pane: header, timeline, composer, and the bot's computer.
@@ -36,6 +40,9 @@ export interface ThreadPaneProps {
   ) => void
   readonly onWatchReasoning: (threadId: ThreadId, itemId: string, watching: boolean) => void
   readonly onOpenSandboxSettings?: () => void
+  readonly onRenameBot: (botId: BotId, name: string) => void
+  /** Archives, in truth. "Delete" is what the user meant; the dialog says both. */
+  readonly onDeleteBot: (botId: BotId) => void
 }
 
 export function ThreadPane({
@@ -48,13 +55,28 @@ export function ThreadPane({
   onAnswerInput,
   onWatchReasoning,
   onOpenSandboxSettings,
+  onRenameBot,
+  onDeleteBot,
 }: ThreadPaneProps) {
   // Per thread, so switching away and back does not lose what you were half-way
   // through typing. Keyed by id rather than reset on prop change, which is the
   // version of this that quietly eats a paragraph.
   const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [computerOpen, setComputerOpen] = useState(false)
-  const [computerTab, setComputerTab] = useState<ComputerTab>("files")
+  // In the URL, not state: the pane refines the place, so a reload -- and a
+  // copied link -- lands with the same tab open. `?computer=files`; absent is
+  // closed, which keeps a plain conversation link plain. Closing forgets the
+  // tab, by construction: one param cannot say "closed, on Terminal".
+  const [computerTab, setComputerTab] = useQueryState("computer", computerTabParser)
+  const computerOpen = computerTab !== null
+
+  // The open dialog remembers whose bot it was opened for, and a rail click
+  // that lands on another thread closes it by construction -- a rename typed
+  // against bot A must not be able to fire at bot B.
+  const [botDialog, setBotDialog] = useState<{
+    readonly kind: BotDialogKind
+    readonly botId: BotId
+  } | null>(null)
+  const openDialog = botDialog !== null && botDialog.botId === bot.id ? botDialog.kind : null
 
   const draft = drafts[thread.id] ?? ""
   const mark = markOf(bot)
@@ -91,7 +113,9 @@ export function ThreadPane({
           state={thread.status}
           health={bot.health}
           computerOpen={computerOpen}
-          onToggleComputer={() => setComputerOpen((open) => !open)}
+          onToggleComputer={() => void setComputerTab(computerOpen ? null : "files")}
+          onRenameBot={() => setBotDialog({ kind: "rename", botId: bot.id })}
+          onDeleteBot={() => setBotDialog({ kind: "delete", botId: bot.id })}
         />
         {provisioning ? (
           <CreatingPane name={bot.name} shape={mark.shape} tone={mark.tone} />
@@ -124,10 +148,10 @@ export function ThreadPane({
         </Composer>
       </main>
 
-      {computerOpen && (
+      {computerTab !== null && (
         <ComputerPane
           tab={computerTab}
-          onTabChange={setComputerTab}
+          onTabChange={(tab) => void setComputerTab(tab)}
           onOpenSettings={onOpenSandboxSettings}
           sandbox={{
             backend: bot.sandbox.backend,
@@ -137,21 +161,41 @@ export function ThreadPane({
           }}
         >
           {computerTab === "files" ? <FileTree botId={bot.id} /> : null}
-          {computerTab === "terminal" ? <TerminalView lines={[]} /> : null}
+          {computerTab === "terminal" ? <Terminal threadId={thread.id} /> : null}
         </ComputerPane>
       )}
+
+      {/* Keyed so switching to another bot's thread drops any half-typed
+          rename with the dialog, instead of serving it to the next bot. */}
+      <BotDialogs
+        key={bot.id}
+        bot={bot}
+        kind={openDialog}
+        onClose={() => setBotDialog(null)}
+        onRename={onRenameBot}
+        onDelete={onDeleteBot}
+      />
     </>
   )
 }
 
 /**
- * The wait while a new bot's eve project is written and installed -- a minute
- * or more, and the one moment the product literally builds something in front
- * of the user, so it gets a piece of the first-run delight budget: the
- * `evie-enter` stagger from onboarding, then the sanctioned `evie-thinking`
- * tick (4 discrete repaints/s, AGENTS.md's no-continuous-repaint rule) saying
- * the wait is alive. It unmounts on `BotProvisioned`, when the fleet stream
- * flips health to `idle` and the timeline takes over.
+ * The wait while a new bot's eve project is written, installed and booted -- a
+ * minute or more, and the one moment the product literally builds something in
+ * front of the user, so it gets a piece of the first-run delight budget: the
+ * `evie-enter` stagger from onboarding, and then the bot's own face saying the
+ * wait is alive.
+ *
+ * The face carries that, not the copy. This used to hang `evie-thinking`'s
+ * ellipsis off the end of the line, which shifted a centred sentence four times
+ * a second for the entire wait. `mood="busy"` moves the signal onto the thing
+ * the user is already looking at and costs less than half the repaints (see
+ * `.evie-busy-eyes`). The words underneath stay honest and stay still.
+ *
+ * It unmounts on `BotProvisioned`, which the supervisor writes only once the
+ * runtime answered its health route -- and the timeline that takes over is not
+ * empty for long: the bot's greeting turn is already streaming into it
+ * (TurnReactor.greet).
  */
 export function CreatingPane({
   name,
@@ -165,15 +209,13 @@ export function CreatingPane({
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-8">
       <span className="evie-enter">
-        <BotMark size={88} shape={shape} tone={tone} />
+        <BotMark size={88} shape={shape} tone={tone} mood="busy" />
       </span>
       <div className="evie-enter flex flex-col items-center gap-3 [animation-delay:60ms]">
-        <p className="text-lede text-fg">
-          <span className="evie-thinking">{name} is being created</span>
-        </p>
+        <p className="text-lede text-fg">{name} is being created</p>
         <p className="max-w-[420px] text-center text-compact text-fg-muted">
-          Evie is setting up its computer and installing its runtime. The first time takes a minute
-          or two.
+          Evie is setting up its computer, installing its runtime, and starting it up. The first
+          time takes a minute or two — it will say hello when it&apos;s ready.
         </p>
       </div>
     </div>

@@ -1,9 +1,10 @@
 import { useState } from "react"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import type { BotId, ThreadId } from "@evie/contracts/ids"
+import { markOf } from "@evie/ui/components/bot-mark"
 import type { BotShape, BotTone } from "@evie/ui/components/bot-mark"
 import { useRuntime } from "~/lib/runtime.ts"
-import { NewBotScreen } from "~/screens/new-bot.tsx"
+import { NewBotScreen, type ArchivedBot } from "~/screens/new-bot.tsx"
 
 /**
  * Making a bot.
@@ -17,12 +18,29 @@ import { NewBotScreen } from "~/screens/new-bot.tsx"
  * and losing a half-typed name to a refresh is what every form on the web does.
  */
 export const Route = createFileRoute("/_app/new")({
+  /*
+   * Archived bots are fetched here rather than carried on the fleet stream:
+   * the fleet is what the rail draws every frame, and a deleted bot has no
+   * business in it. This screen is the one place they surface -- the way back
+   * from delete lives next to the way in -- so this route asks for them when
+   * you arrive, and asks again after a restore.
+   */
+  loader: async ({ context }): Promise<readonly ArchivedBot[]> => {
+    const bots = await context.runtime.store.client.rpc((c) =>
+      c["bots.list"]({ includeArchived: true }),
+    )
+    return bots
+      .filter((bot) => bot.archivedAt !== null)
+      .map((bot) => ({ id: bot.id, name: bot.name, ...markOf(bot) }))
+  },
   component: NewBotRoute,
 })
 
 function NewBotRoute() {
   const runtime = useRuntime()
   const navigate = useNavigate()
+  const router = useRouter()
+  const archived = Route.useLoaderData()
 
   const [name, setName] = useState("")
   const [shape, setShape] = useState<BotShape>("circle")
@@ -66,6 +84,10 @@ function NewBotRoute() {
         setTone(suggestion.tone)
       }}
       creating={creating}
+      archived={archived}
+      onRestore={(botId) =>
+        void runtime.commands.unarchiveBot(botId).then(() => router.invalidate())
+      }
     />
   )
 }

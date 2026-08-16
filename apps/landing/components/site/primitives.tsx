@@ -1,5 +1,6 @@
 import { cn } from "@evie/ui/lib/utils"
 import { AppleIcon } from "~/components/site/brand"
+import { GazeArea } from "~/components/site/gaze-area"
 import { CTA } from "~/content/site"
 
 /**
@@ -37,6 +38,14 @@ export interface SectionProps {
   /** The hairline the design draws where two light bands meet. */
   readonly topLine?: boolean
   readonly bottomLine?: boolean
+  /**
+   * The Evie marks in this band watch the cursor. Set it on bands built around
+   * a face -- a hero mark, a screenshot of the app -- and leave it off the ones
+   * that merely happen to contain one, like the footer's 20px wordmark. It
+   * costs a client component (see `gaze-area.tsx`), so it is opt-in per band
+   * rather than on by default.
+   */
+  readonly alive?: boolean
   readonly className?: string
   readonly id?: string
   readonly children: React.ReactNode
@@ -46,21 +55,30 @@ export function Section({
   ground = "surface",
   topLine = false,
   bottomLine = false,
+  alive = false,
   className,
   id,
   children,
 }: SectionProps) {
+  const band = cn(
+    "flex w-full shrink-0 flex-col items-center px-10",
+    GROUND[ground],
+    topLine && "border-t border-line-subtle",
+    bottomLine && "border-b border-line-subtle",
+    className,
+  )
+
+  /* Same element, same classes -- `GazeArea` only adds the ref. */
+  if (alive) {
+    return (
+      <GazeArea id={id} className={band}>
+        {children}
+      </GazeArea>
+    )
+  }
+
   return (
-    <section
-      id={id}
-      className={cn(
-        "flex w-full shrink-0 flex-col items-center px-10",
-        GROUND[ground],
-        topLine && "border-t border-line-subtle",
-        bottomLine && "border-b border-line-subtle",
-        className,
-      )}
-    >
+    <section id={id} className={band}>
       {children}
     </section>
   )

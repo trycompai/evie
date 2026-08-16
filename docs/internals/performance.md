@@ -12,7 +12,7 @@ when a thread is long or a turn is streaming. That is why they are written down.
 | Budget | Limit | Kept by |
 | --- | --- | --- |
 | Thread open (2,000 items) to first paint | < 100 ms | Virtualized list; only ~30 rows mount. [`timeline.tsx`](../../apps/web/src/components/timeline.tsx) |
-| React commits during streaming | ≤ 1 per animation frame | Row-level subscriptions + frame coalescing. [`store.ts`](../../packages/client-runtime/src/store.ts) |
+| React commits during streaming | ≤ 1 per animation frame | Row-level subscriptions + frame coalescing. [`store.ts`](../../packages/client-runtime/src/store.ts), [`smooth-text.ts`](../../packages/ui/src/lib/smooth-text.ts) |
 | Sustained WS bytes for one streaming turn | < 40 KB/s | Suffix deltas, reasoning opt-in, 8 KiB tool cap. [`hub.ts`](../../apps/server/src/gateway/hub.ts) |
 | Idle CPU, thread open, nothing running | ~0%. No timers, no polling, no rAF loop. | Demand-scheduled flush; no `setInterval` anywhere. |
 | Main-thread long tasks during streaming | none > 50 ms | Per-block memoized Markdown; one shared `ResizeObserver`. |
@@ -91,16 +91,67 @@ CSS animations that repaint every frame peg the GPU on a 120 Hz display, and
 Evie is open all day. No shimmer, no gradient sweep, no pulsing dot at 60 fps,
 no spinner.
 
-The one indicator allowed to loop is `.evie-thinking` in
-[`globals.css`](../../packages/ui/src/styles/globals.css), and it ticks on a 1s
-`steps(4)` interval — four discrete repaints a second instead of a per-frame
-interpolation.
+Two indicators are allowed to loop, both in
+[`globals.css`](../../packages/ui/src/styles/globals.css), and both for the same
+reason — they step rather than interpolate:
+
+| Loop | Cost | Says |
+| --- | --- | --- |
+| `.evie-thinking` | 1s `steps(4)`, 4 repaints/s | a turn is running |
+| `.evie-busy-eyes` | 4.8s `step-end`, 7 changes ≈ 1.5 repaints/s | a bot's computer is still being built |
+
+`.evie-busy-eyes` is the face `CreatingPane` shows for the minute or two a new
+bot takes to provision. It replaced an `.evie-thinking` ellipsis on that screen,
+which is worth knowing about because the ellipsis was not only the more
+expensive of the two — it appended up to three characters to a centred line, so
+it also **shifted the layout four times a second for the length of the wait**. A
+text-content loop under centred or right-aligned text is a layout shift wearing
+an animation's clothes; prefer a fixed-width slot or, as here, move the signal
+onto something that was already there.
 
 Everything else that needs to say "working" says it in words, and the words are
 true (see [status honesty](#status-honesty)).
 
 **Watch for:** `animate-pulse`, `animate-spin`, `animate-[…]` with
 `infinite`, and any gradient with a moving `background-position`.
+
+#### The rule is "no loop", not "no motion"
+
+Beyond the two stepped loops above, the app's motion is all one-shot or
+pointer-driven, which is the distinction to hold when reviewing a new one:
+
+- `.evie-enter` and `.evie-wake` are **one-shot on mount**. They play, they
+  finish, they stop. The budget they spend is bounded by how often the element
+  mounts, so the question to ask of a new one is not "is it cheap?" but "how
+  often does this draw?" — `.evie-wake` is on the mark of a bot being *created*,
+  and `AppRail` deliberately seeds its set of known bots on the first render so
+  that launching the app does not wake twelve faces at once.
+- Streamed text is revealed by a rAF loop, and **the backlog is the clock**.
+  The hub coalesces deltas into 50 ms frames to hold the byte budget, so the
+  wire delivers slabs; [`smooth-text.ts`](../../packages/ui/src/lib/smooth-text.ts)
+  banks them and reveals a backlog-proportional slice per frame, which settles
+  at a constant ~200 ms of lag whatever the model's speed. The loop arms when a
+  delta lands and stops the moment the backlog drains, the stream finishes, or
+  the row unmounts — never re-arming on an empty backlog — so a thread that is
+  idle, or merely *between* deltas, schedules nothing. It commits once per
+  frame in the one row that is streaming, which is the ceiling this table
+  already grants. Reduced motion turns pacing off and the slabs land as they
+  arrive.
+- The rail's eyes follow the pointer, and **the user's hand is the clock**.
+  [`gaze.ts`](../../packages/ui/src/lib/gaze.ts) schedules at most one frame per
+  `pointermove` and none at all when the pointer is still or outside the rail,
+  so the idle-CPU budget above is untouched: there is no `requestAnimationFrame`
+  loop, only a frame per input. It caches each mark's centre and re-reads it
+  only on scroll, resize, or a row appearing, so a frame does no layout reads,
+  and it selects the nearest three marks with a fixed pair of arrays rather than
+  a sort, so a frame allocates nothing either. The easing lives in a CSS
+  transition rather than in JS, which is also what walks the eyes home when the
+  pointer leaves — and what makes the edge of that three-mark pool a handover
+  instead of a snap.
+
+**Watch for:** a `requestAnimationFrame` that re-arms itself unconditionally; a
+`getBoundingClientRect` inside a frame callback; `.evie-wake` on a mark that
+draws on every navigation.
 
 ### 5. Bytes are budgeted before they reach the socket
 

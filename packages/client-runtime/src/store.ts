@@ -1,6 +1,7 @@
 import type { Bot } from "@evie/contracts/bot";
 import type { BotId, ThreadId } from "@evie/contracts/ids";
 import type { SessionInfo } from "@evie/contracts/org";
+import type { Routine } from "@evie/contracts/routine";
 import type { Thread } from "@evie/contracts/thread";
 import type { TimelineItem } from "@evie/contracts/timeline";
 import type { ConnectionState, EvieClient } from "./client.ts";
@@ -73,6 +74,7 @@ export class EvieStore {
 	readonly #threadListeners = new Map<string, Set<Listener>>();
 	readonly #itemListeners = new Map<string, Set<Listener>>();
 	readonly #fileListeners = new Map<string, Set<Listener>>();
+	readonly #terminalListeners = new Map<string, Set<Listener>>();
 
 	/**
 	 * Takes a client *factory*, not a client.
@@ -205,6 +207,25 @@ export class EvieStore {
 	): TimelineItem | undefined => this.#timeline(threadId).get(itemId);
 
 	/**
+	 * The Computer pane's Terminal tab. Its own channel because a bash result
+	 * lands as a `replace` of a known row -- a frame `subscribeThread` is
+	 * deliberately deaf to -- and the alternative, subscribing the tab to every
+	 * bash row individually, re-derives the list of rows to watch on each frame.
+	 */
+	subscribeTerminal = (threadId: ThreadId) => (listener: Listener) => {
+		let set = this.#terminalListeners.get(threadId);
+		if (!set) {
+			set = new Set();
+			this.#terminalListeners.set(threadId, set);
+		}
+		set.add(listener);
+		return () => set.delete(listener);
+	};
+
+	getTerminalSnapshot = (threadId: ThreadId): readonly string[] =>
+		this.#timeline(threadId).terminal();
+
+	/**
 	 * Opens a thread: fetch a page of history, then subscribe from where that
 	 * page ended. Fetch-then-subscribe rather than the reverse would drop
 	 * everything that happened in between; subscribing first and reconciling by
@@ -222,6 +243,7 @@ export class EvieStore {
 		);
 		timeline.hydrate(page.items);
 		notify(this.#threadListeners.get(threadId));
+		notify(this.#terminalListeners.get(threadId));
 		this.#watch(threadId);
 	}
 
@@ -240,6 +262,7 @@ export class EvieStore {
 		if (page.items.length === 0) return false;
 		this.#timeline(threadId).hydrate(page.items);
 		notify(this.#threadListeners.get(threadId));
+		notify(this.#terminalListeners.get(threadId));
 		return page.nextBefore !== null;
 	}
 
@@ -297,6 +320,8 @@ export class EvieStore {
 					for (const id of result.changed)
 						notify(this.#itemListeners.get(`${threadId}/${id}`));
 					if (result.threadChanged) notify(this.#threadListeners.get(threadId));
+					if (result.terminalChanged)
+						notify(this.#terminalListeners.get(threadId));
 				},
 				onEnd,
 			),
@@ -394,6 +419,22 @@ export class EvieStore {
 		tree.open(path);
 		notify(this.#fileListeners.get(botId));
 		return this.#list(botId, path);
+	}
+
+	/**
+	 * Every routine the organization owns, or one bot's.
+	 *
+	 * A plain read, not a subscription and not cached here. Routines change
+	 * when a person edits one, which is rare enough that a live slice of the
+	 * fleet frame would spend the frame budget on a table almost nobody has
+	 * open. The dialog reads on open and again after each command settles,
+	 * which is also the only way its `nextRunAt` is ever worth trusting -- the
+	 * scheduler recomputes that, and a cached copy is a countdown that lies.
+	 */
+	listRoutines(botId?: BotId): Promise<readonly Routine[]> {
+		return this.client.rpc((client) =>
+			client["routines.list"](botId === undefined ? {} : { botId }),
+		);
 	}
 
 	async #list(botId: BotId, path: string): Promise<void> {

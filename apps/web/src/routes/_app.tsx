@@ -1,6 +1,8 @@
-import { createFileRoute, Outlet, useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
-import type { ThreadId } from "@evie/contracts/ids"
+import { useState } from "react"
+import { createFileRoute, Outlet, useMatchRoute, useNavigate, useParams, useRouter } from "@tanstack/react-router"
+import type { BotId, ThreadId } from "@evie/contracts/ids"
 import { AppRail } from "~/components/app-rail.tsx"
+import { BotDialogs, type BotDialogKind } from "~/components/bot-dialogs.tsx"
 import { IS_DESKTOP } from "~/lib/desktop.ts"
 import { useFleet } from "~/lib/hooks.ts"
 import { useRuntime } from "~/lib/runtime.ts"
@@ -30,6 +32,7 @@ function AppLayout() {
   const { bots, threads } = useFleet()
   const session = runtime.store.getSession()
   const navigate = useNavigate()
+  const router = useRouter()
   const matchRoute = useMatchRoute()
 
   // `strict: false` because the rail renders above every child route and only
@@ -37,7 +40,29 @@ function AppLayout() {
   // which is exactly what the rail wants to know.
   const threadId = useParams({ strict: false }).threadId as ThreadId | undefined
 
+  // The rail's right-click dialogs. Held by id and resolved from the fleet on
+  // render, so a bot renamed or archived elsewhere updates -- or closes -- the
+  // dialog instead of it acting on a snapshot.
+  const [botDialog, setBotDialog] = useState<{
+    readonly kind: BotDialogKind
+    readonly botId: BotId
+  } | null>(null)
+  const dialogBot = botDialog ? (bots.find((bot) => bot.id === botDialog.botId) ?? null) : null
+
   if (!session) return <LaunchScreen state="opening" desktop={IS_DESKTOP} onReopen={reload} onCancel={close} />
+
+  const deleteBot = async (botId: BotId) => {
+    await runtime.commands.archiveBot(botId)
+    // The New-bot screen's Archived list is loader data; if it is on screen,
+    // tell it the fleet just lost a member so the bot appears there at once.
+    void router.invalidate()
+    // The open conversation belongs to the bot that just left the rail --
+    // leaving the pane on it would strand the user on an unlisted thread.
+    const current = threads.find((thread) => thread.id === threadId)
+    if (current?.participants.some((participant) => participant.botId === botId)) {
+      void navigate({ to: "/" })
+    }
+  }
 
   return (
     <div className="flex h-full bg-surface">
@@ -52,9 +77,24 @@ function AppLayout() {
         onSelectThread={(id) => void navigate({ to: "/chat/$threadId", params: { threadId: id } })}
         onNewBot={() => void navigate({ to: "/new" })}
         onOpenPlugins={() => void navigate({ to: "/plugins" })}
+        onOpenRoutines={() => void navigate({ to: "/routines" })}
         onOpenAccount={() => undefined}
+        onRenameBot={(bot) => setBotDialog({ kind: "rename", botId: bot.id })}
+        onDeleteBot={(bot) => setBotDialog({ kind: "delete", botId: bot.id })}
       />
       <Outlet />
+      <BotDialogs
+        key={botDialog?.botId}
+        bot={dialogBot}
+        kind={botDialog?.kind ?? null}
+        onClose={() => setBotDialog(null)}
+        onRename={(botId, name) =>
+          // The description rides along unchanged: `RenameBot` writes both, and
+          // omitting it here would null the description as a side effect.
+          void runtime.commands.renameBot(botId, name, dialogBot?.description ?? null)
+        }
+        onDelete={(botId) => void deleteBot(botId)}
+      />
     </div>
   )
 }

@@ -60,6 +60,25 @@ export const SandboxConfig = Schema.Struct({
 export type SandboxConfig = typeof SandboxConfig.Type;
 
 /**
+ * What a connection points at.
+ *
+ * Typed rather than `unknown` because Evie generates `agent/connections/<name>.ts`
+ * from it (`provider/scaffold.ts`). A generated file is code, and code cannot be
+ * written from a shape nothing validated -- an `unknown` that turns out to hold
+ * no `url` is a bot whose runtime fails to compile on its next boot.
+ *
+ * Never a credential. Those live in the `secret` table and reach the runtime as
+ * an environment variable named for the connection.
+ */
+export const ConnectionConfig = Schema.Struct({
+	/** The MCP endpoint, or the OpenAPI document's URL. */
+	url: Schema.String,
+	/** OpenAPI only. Overrides the `servers` entry inside the document. */
+	baseUrl: Schema.optional(Schema.String),
+});
+export type ConnectionConfig = typeof ConnectionConfig.Type;
+
+/**
  * What the supervisor last observed. `unhealthy` carries the reason and the
  * tail of stderr; three failed starts stop the retry loop rather than
  * retrying forever behind a spinner that means nothing.

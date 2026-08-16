@@ -1,5 +1,12 @@
 import { ActionButton } from "@evie/ui/components/action-button"
-import { BOT_SHAPES, BOT_TONES, BotMark, type BotShape, type BotTone } from "@evie/ui/components/bot-mark"
+import {
+  BOT_SHAPES,
+  BOT_TONE_FILLS,
+  BOT_TONES,
+  BotMark,
+  type BotShape,
+  type BotTone,
+} from "@evie/ui/components/bot-mark"
 import { TextField } from "@evie/ui/components/text-field"
 import { cn } from "@evie/ui/lib/utils"
 import { MockRail } from "~/components/screens/mock-rail"
@@ -20,16 +27,6 @@ import { Screen } from "~/components/screens/screen-frame"
 
 const SHAPE: BotShape = "circle"
 const TONE: BotTone = 1
-
-/** Mirrors `BotMark`'s private tone fills, as the app's picker does. */
-const TONE_SWATCH: Record<BotTone, string> = {
-  1: "var(--color-text-primary)",
-  2: "var(--color-gray-500)",
-  3: "var(--color-gray-600)",
-  4: "var(--color-gray-700)",
-  5: "var(--color-gray-800)",
-  6: "var(--color-gray-900)",
-}
 
 const SUGGESTIONS = [
   {
@@ -70,9 +67,12 @@ export function NewBotScreen() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-10">
-          <BotMark size={96} shape={SHAPE} tone={TONE} />
+          {/* Wakes exactly as the app's picker does, so the screenshot moves the
+              way the product does. */}
+          <BotMark size={96} shape={SHAPE} tone={TONE} mood="waking" />
 
-          <div className="flex items-center gap-2.5">
+          {/* Two rows of six, as the app lays them: neutrals above, hues below. */}
+          <div className="grid grid-cols-6 gap-2.5">
             {BOT_TONES.map((tone) => (
               <span
                 key={tone}
@@ -80,7 +80,7 @@ export function NewBotScreen() {
                   "size-[26px] shrink-0 rounded-pill",
                   tone === TONE && "ring-2 ring-fg ring-offset-2 ring-offset-surface",
                 )}
-                style={{ backgroundColor: TONE_SWATCH[tone] }}
+                style={{ backgroundColor: BOT_TONE_FILLS[tone] }}
               />
             ))}
           </div>

@@ -1,4 +1,5 @@
 import type {
+	ConnectionConfig,
 	CreateBotInput,
 	NetworkPolicy,
 	ReasoningEffort,
@@ -9,6 +10,7 @@ import type {
 	BlobId,
 	BotId,
 	ConnectionId,
+	RoutineId,
 	ThreadId,
 	TurnId,
 	UserId,
@@ -114,6 +116,33 @@ export function makeCommands(client: EvieClient) {
 		renameThread: (threadId: ThreadId, title: string | null) =>
 			send({ _tag: "RenameThread", threadId, title }),
 
+		/* --- routines --------------------------------------------------------- */
+		createRoutine: (
+			botId: BotId,
+			input: {
+				readonly name: string;
+				/** 5-field cron. The decider rejects anything else. */
+				readonly cron: string;
+				/** IANA zone. Pass the viewer's own; never let the server guess. */
+				readonly tz: string;
+				readonly prompt: string;
+				readonly threadId?: ThreadId;
+				readonly runAs?: UserId;
+			},
+		) => send({ _tag: "CreateRoutine", botId, ...input }),
+		setRoutineEnabled: (
+			botId: BotId,
+			routineId: RoutineId,
+			enabled: boolean,
+		) => send({ _tag: "SetRoutineEnabled", botId, routineId, enabled }),
+		setRoutineRunAs: (
+			botId: BotId,
+			routineId: RoutineId,
+			runAs: UserId | null,
+		) => send({ _tag: "SetRoutineRunAs", botId, routineId, runAs }),
+		deleteRoutine: (botId: BotId, routineId: RoutineId) =>
+			send({ _tag: "DeleteRoutine", botId, routineId }),
+
 		/* --- connections ----------------------------------------------------- */
 		connectService: (
 			botId: BotId,
@@ -121,7 +150,7 @@ export function makeCommands(client: EvieClient) {
 				readonly name: string;
 				readonly kind: "mcp" | "openapi";
 				readonly scope: "org" | "member";
-				readonly config: unknown;
+				readonly config: ConnectionConfig;
 				readonly authKind: "none" | "token" | "interactive";
 			},
 		) => send({ _tag: "ConnectService", botId, ...input }),
