@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "cookie": "^2.0.1",
-    "devalue": "5.8.1",
+    "devalue": "5.9.1",
     "uuid": "^14.0.1"
   },
   "devDependencies": {
