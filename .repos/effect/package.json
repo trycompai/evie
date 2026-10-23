@@ -76,7 +76,7 @@
     "terser": "^5.49.0",
     "tstyche": "^7.2.2",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5",
+    "vite": "^8.1.6",
     "vitest": "^4.1.10",
     "vitest-websocket-mock": "^0.7.0",
     "zod": "^4.4.3"
